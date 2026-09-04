@@ -1,3 +1,5 @@
+from datetime import date, timedelta
+
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.http import HttpResponse, JsonResponse
@@ -76,7 +78,8 @@ def draft_confirm(request, pk):
         edited = item.copy()
         for field in ("title", "description", "status", "priority", "current_note", "completed_work", "next_step", "planned_start_date", "due_date", "acceptance_date"):
             if f"task_{index}_{field}" in request.POST:
-                edited[field] = request.POST.get(f"task_{index}_{field}") or None if field.endswith("_date") else request.POST.get(f"task_{index}_{field}", "")
+                value = request.POST.get(f"task_{index}_{field}", "")
+                edited[field] = value or None if field.endswith("_date") else value
         if f"task_{index}_progress" in request.POST:
             try: edited["progress"] = int(request.POST[f"task_{index}_progress"])
             except ValueError: edited["progress"] = -1
@@ -173,10 +176,20 @@ def person_edit(request, pk=None):
 @login_required
 def report_view(request):
     today = timezone.localdate()
-    start = request.GET.get("start") or (today - timezone.timedelta(days=today.weekday())).isoformat()
+    default_start = today - timedelta(days=today.weekday())
+    start = request.GET.get("start") or default_start.isoformat()
     end = request.GET.get("end") or today.isoformat()
-    report = build_weekly_report(timezone.datetime.fromisoformat(start).date(), timezone.datetime.fromisoformat(end).date())
-    return render(request, "core/report.html", {"start": start, "end": end, "markdown": report.markdown})
+    error = ""
+    try:
+        start_date, end_date = date.fromisoformat(start), date.fromisoformat(end)
+        if start_date > end_date:
+            raise ValueError
+    except ValueError:
+        start_date, end_date = default_start, today
+        start, end = start_date.isoformat(), end_date.isoformat()
+        error = "日期格式无效，已恢复为本周范围。"
+    report = build_weekly_report(start_date, end_date)
+    return render(request, "core/report.html", {"start": start, "end": end, "markdown": report.markdown, "error": error})
 
 
 @login_required

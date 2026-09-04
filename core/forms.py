@@ -25,6 +25,7 @@ class TaskForm(forms.ModelForm):
     class Meta:
         model = Task
         fields = ["project", "title", "description", "assignee", "planned_start_date", "due_date", "acceptance_date", "status", "priority", "progress", "current_note"]
+        widgets = {field: forms.DateInput(attrs={"type": "date"}) for field in ("planned_start_date", "due_date", "acceptance_date")}
 
 
 class RiskForm(forms.ModelForm):

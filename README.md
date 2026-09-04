@@ -22,6 +22,8 @@ cp .env.example .env
 
 `PYPI_INDEX_URL` 默认使用阿里云 PyPI 镜像以改善国内服务器构建稳定性；海外服务器可改为 `https://pypi.org/simple`。
 
+端口默认只绑定 `127.0.0.1`，适合本机使用和同机反向代理。只有明确需要从其他机器直接访问端口时，才把 `APP_BIND` 改成服务器指定网卡地址。
+
 ```bash
 python3 -c 'import secrets; print(secrets.token_urlsafe(64))'
 ```

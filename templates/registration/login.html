@@ -1,1 +1,1 @@
-{% extends "base.html" %}{% block title %}登录{% endblock %}{% block content %}<h1>项目进度台</h1><form method="post">{% csrf_token %}{{ form.as_p }}<button type="submit">登录</button></form>{% endblock %}
+{% extends "base.html" %}{% block title %}登录{% endblock %}{% block content %}<div class="page narrow"><section class="card"><span class="eyebrow">个人项目经理工作台</span><h1>项目进度台</h1><p class="muted">登录后整理会议、跟踪任务并生成周报。</p><form method="post" class="form-grid">{% csrf_token %}{{ form.as_p }}<button class="button primary large" type="submit">登录</button></form></section></div>{% endblock %}

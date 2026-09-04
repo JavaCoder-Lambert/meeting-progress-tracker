@@ -39,3 +39,10 @@ def test_weekly_report_page_uses_current_week_by_default(admin_client):
     response = admin_client.get("/reports/weekly/")
     assert response.status_code == 200
     assert "项目周报" in response.content.decode()
+
+
+@pytest.mark.django_db
+def test_weekly_report_page_handles_invalid_dates(admin_client):
+    response = admin_client.get("/reports/weekly/", {"start": "not-a-date", "end": "2026-09-04"})
+    assert response.status_code == 200
+    assert "日期格式无效" in response.content.decode()
