@@ -1,9 +1,11 @@
+from copy import deepcopy
 from datetime import date, timedelta
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
 
 from .forms import MeetingNoteForm, PersonForm, ProjectForm, TaskForm
@@ -12,6 +14,7 @@ from .services.dashboard import dashboard_context
 from .services.draft_confirmation import DraftConfirmationError, confirm_draft
 from .services.exports import build_csv_zip, build_json_export
 from .services.llm_client import LLMParseError, parse_meeting_note
+from .services.llm_schema import normalize_date
 from .services.reports import build_weekly_report
 from .services.task_matching import find_task_candidates
 
@@ -45,20 +48,95 @@ def meeting_parse(request, pk):
     note = get_object_or_404(MeetingNote, pk=pk)
     if request.method != "POST":
         return redirect("meeting_detail", pk=pk)
+    wants_json = request.headers.get("X-Requested-With") == "XMLHttpRequest"
     try:
         draft = parse_meeting_note(note)
     except LLMParseError as exc:
+        if wants_json:
+            return JsonResponse({"ok": False, "message": str(exc)}, status=422)
         messages.error(request, str(exc))
         return redirect("meeting_detail", pk=pk)
+    if wants_json:
+        return JsonResponse({"ok": True, "redirect_url": reverse("draft_review", args=[draft.pk])})
     return redirect("draft_review", pk=draft.pk)
 
 
-def _draft_context(draft, error=""):
+def _date_input(value, meeting_date):
+    if value in (None, ""):
+        return {"type": "date", "value": ""}
+    try:
+        normalized = normalize_date(value, meeting_date)
+    except (TypeError, ValueError):
+        return {"type": "text", "value": str(value)}
+    return {"type": "date", "value": normalized.isoformat() if normalized else ""}
+
+
+def _draft_context(draft, error="", decisions=None):
     payload = draft.payload
+    decisions = decisions or {}
+    projects = list(Project.objects.all())
+    people = list(Person.objects.filter(is_active=True))
+    project_by_name = {item.name: item for item in projects}
+    person_by_name = {item.name: item for item in people}
+
+    def selected_id(rows, index, key, default_name, defaults):
+        if index < len(rows):
+            return str(rows[index].get(key) or "")
+        match = defaults.get(default_name)
+        return str(match.pk) if match else ""
+
+    task_decisions = decisions.get("tasks", [])
     task_rows = []
-    for item in payload.get("tasks", []):
-        task_rows.append({"item": item, "candidates": find_task_candidates(item, Task.objects.exclude(status=Task.Status.DONE))})
-    return {"draft": draft, "note": draft.meeting_note, "task_rows": task_rows, "projects": Project.objects.all(), "people": Person.objects.filter(is_active=True), "task_statuses": Task.Status.choices, "error": error}
+    for index, item in enumerate(payload.get("tasks", [])):
+        decision = task_decisions[index] if index < len(task_decisions) else {}
+        task_rows.append({
+            "item": item,
+            "candidates": find_task_candidates(item, Task.objects.exclude(status=Task.Status.DONE)),
+            "action": decision.get("action", "create"),
+            "existing_id": str(decision.get("task_id") or ""),
+            "project_id": selected_id(task_decisions, index, "project_id", item.get("project_name", ""), project_by_name),
+            "assignee_id": selected_id(task_decisions, index, "assignee_id", item.get("assignee_name", ""), person_by_name),
+            "planned_start_date": _date_input(item.get("planned_start_date"), draft.meeting_note.meeting_date),
+            "due_date": _date_input(item.get("due_date"), draft.meeting_note.meeting_date),
+            "acceptance_date": _date_input(item.get("acceptance_date"), draft.meeting_note.meeting_date),
+        })
+
+    risk_decisions = decisions.get("risks", [])
+    risk_rows = []
+    for index, item in enumerate(payload.get("risks", [])):
+        decision = risk_decisions[index] if index < len(risk_decisions) else {}
+        risk_rows.append({
+            "item": item,
+            "action": decision.get("action", "ignore"),
+            "project_id": selected_id(risk_decisions, index, "project_id", item.get("project_name", ""), project_by_name),
+            "owner_id": selected_id(risk_decisions, index, "owner_id", item.get("owner_name", ""), person_by_name),
+            "due_date": _date_input(item.get("due_date"), draft.meeting_note.meeting_date),
+        })
+
+    milestone_decisions = decisions.get("milestones", [])
+    milestone_rows = []
+    for index, item in enumerate(payload.get("milestones", [])):
+        decision = milestone_decisions[index] if index < len(milestone_decisions) else {}
+        milestone_rows.append({
+            "item": item,
+            "action": decision.get("action", "ignore"),
+            "project_id": selected_id(milestone_decisions, index, "project_id", item.get("project_name", ""), project_by_name),
+            "target_date": _date_input(item.get("target_date"), draft.meeting_note.meeting_date),
+        })
+
+    return {
+        "draft": draft,
+        "note": draft.meeting_note,
+        "task_rows": task_rows,
+        "risk_rows": risk_rows,
+        "milestone_rows": milestone_rows,
+        "projects": projects,
+        "people": people,
+        "task_statuses": Task.Status.choices,
+        "task_priorities": Task.Priority.choices,
+        "error": error,
+        "is_confirmed": bool(draft.confirmed_at),
+    }
 
 
 @login_required
@@ -72,7 +150,13 @@ def draft_confirm(request, pk):
     draft = get_object_or_404(ImportDraft.objects.select_related("meeting_note"), pk=pk)
     if request.method != "POST":
         return redirect("draft_review", pk=pk)
-    payload = draft.payload.copy()
+    if draft.confirmed_at:
+        return render(
+            request,
+            "core/draft_review.html",
+            _draft_context(draft, "该草稿已经入库，内容只读，不能再次提交。"),
+        )
+    payload = deepcopy(draft.payload)
     decisions = {"tasks": [], "risks": [], "milestones": []}
     for index, item in enumerate(payload.get("tasks", [])):
         edited = item.copy()
@@ -91,16 +175,26 @@ def draft_confirm(request, pk):
             "task_id": request.POST.get(f"task_{index}_existing") or None,
         })
     for kind in ("risks", "milestones"):
-        for index, _item in enumerate(payload.get(kind, [])):
+        for index, item in enumerate(payload.get(kind, [])):
+            edited = item.copy()
+            date_field = "due_date" if kind == "risks" else "target_date"
+            posted_date = f"{kind}_{index}_{date_field}"
+            if posted_date in request.POST:
+                edited[date_field] = request.POST.get(posted_date) or None
+            payload[kind][index] = edited
             row = {"action": request.POST.get(f"{kind}_{index}_action", "ignore"), "project_id": request.POST.get(f"{kind}_{index}_project") or None}
             if kind == "risks": row["owner_id"] = request.POST.get(f"risks_{index}_owner") or None
             decisions[kind].append(row)
-    draft.payload = payload
-    draft.save(update_fields=["payload"])
     try:
-        result = confirm_draft(draft.pk, decisions)
+        result = confirm_draft(draft.pk, decisions, payload=payload)
     except (DraftConfirmationError, ValueError) as exc:
-        return render(request, "core/draft_review.html", _draft_context(draft, f"请修正：{exc}"), status=200)
+        draft.payload = payload
+        return render(
+            request,
+            "core/draft_review.html",
+            _draft_context(draft, f"请修正：{exc}", decisions=decisions),
+            status=200,
+        )
     messages.success(request, f"已入库：新建 {result.created_tasks} 个任务，更新 {result.updated_tasks} 个任务。")
     return redirect("meeting_detail", pk=draft.meeting_note_id)
 
@@ -108,10 +202,19 @@ def draft_confirm(request, pk):
 @login_required
 def task_list(request):
     tasks = Task.objects.select_related("project", "assignee")
+    filters = {}
     for field in ("project", "assignee", "status", "priority"):
-        value = request.GET.get(field)
+        value = request.GET.get(field, "")
+        filters[field] = value
         if value: tasks = tasks.filter(**{field: value})
-    return render(request, "core/task_list.html", {"tasks": tasks, "projects": Project.objects.all(), "people": Person.objects.filter(is_active=True), "statuses": Task.Status.choices})
+    return render(request, "core/task_list.html", {
+        "tasks": tasks,
+        "projects": Project.objects.all(),
+        "people": Person.objects.filter(is_active=True),
+        "statuses": Task.Status.choices,
+        "priorities": Task.Priority.choices,
+        "filters": filters,
+    })
 
 
 @login_required

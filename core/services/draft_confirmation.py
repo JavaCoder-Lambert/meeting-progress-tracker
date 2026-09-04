@@ -33,14 +33,26 @@ def _get_optional(model, pk, label):
 
 
 @transaction.atomic
-def confirm_draft(draft_id: int, decisions: dict) -> ConfirmationResult:
+def confirm_draft(draft_id: int, decisions: dict, payload: dict | None = None) -> ConfirmationResult:
     try:
         draft = ImportDraft.objects.select_for_update().select_related("meeting_note").get(pk=draft_id)
     except ImportDraft.DoesNotExist as exc:
         raise DraftConfirmationError("解析草稿不存在。") from exc
     if draft.confirmed_at:
         raise DraftAlreadyConfirmed("该草稿已经入库，不能重复确认。")
-    parsed = ParsedMeeting.model_validate(draft.payload)
+
+    meeting_drafts = list(
+        ImportDraft.objects.select_for_update()
+        .filter(meeting_note_id=draft.meeting_note_id)
+        .only("id", "created_at", "confirmed_at")
+        .order_by("-created_at", "-pk")
+    )
+    if any(item.confirmed_at for item in meeting_drafts if item.pk != draft.pk):
+        raise DraftAlreadyConfirmed("该会议已经入库过一份草稿，不能重复导入。")
+    if meeting_drafts and meeting_drafts[0].pk != draft.pk:
+        raise DraftConfirmationError("该草稿已被较新的解析结果替代，请使用最新草稿。")
+
+    parsed = ParsedMeeting.model_validate(payload if payload is not None else draft.payload)
     task_decisions = decisions.get("tasks", [])
     if len(task_decisions) != len(parsed.tasks):
         raise DraftConfirmationError("每条任务都必须选择处理方式。")
@@ -69,8 +81,16 @@ def confirm_draft(draft_id: int, decisions: dict) -> ConfirmationResult:
             created += 1
         elif action == "update":
             task = _get_optional(Task, decision.get("task_id"), "已有任务")
+            if not task:
+                raise DraftConfirmationError(f"任务“{item.title}”选择更新时必须选择已有任务。")
             previous_progress, previous_status = task.progress, task.status
+            preserve_when_empty = {
+                "assignee", "description", "planned_start_date", "due_date",
+                "acceptance_date", "current_note",
+            }
             for key, value in values.items():
+                if key in preserve_when_empty and value in (None, ""):
+                    continue
                 setattr(task, key, value)
             updated += 1
         else:
@@ -113,8 +133,9 @@ def confirm_draft(draft_id: int, decisions: dict) -> ConfirmationResult:
             status=item.status, source_meeting=draft.meeting_note,
         )
         milestone.full_clean(); milestone.save(); milestone_count += 1
+    draft.payload = parsed.model_dump(mode="json")
     draft.confirmed_at = timezone.now()
-    draft.save(update_fields=["confirmed_at"])
+    draft.save(update_fields=["payload", "confirmed_at"])
     draft.meeting_note.parse_status = MeetingNote.ParseStatus.IMPORTED
     draft.meeting_note.save(update_fields=["parse_status", "updated_at"])
     return ConfirmationResult(created, updated, risk_count, milestone_count)

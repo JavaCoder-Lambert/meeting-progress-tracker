@@ -19,6 +19,7 @@ services:
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_MODEL: ${LLM_MODEL:-}
       LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-60}
+      GUNICORN_TIMEOUT: ${GUNICORN_TIMEOUT:-300}
       SECURE_HSTS_SECONDS: ${SECURE_HSTS_SECONDS:-31536000}
     volumes:
       - tracker_data:/data

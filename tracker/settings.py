@@ -4,9 +4,17 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = Path(os.getenv("DATA_DIR", BASE_DIR / "data"))
 DEBUG = os.getenv("DJANGO_DEBUG", "true").lower() in {"1", "true", "yes"}
-if not DEBUG and not os.getenv("DJANGO_SECRET_KEY"):
-    raise RuntimeError("DJANGO_SECRET_KEY is required when DJANGO_DEBUG=false")
-SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "development-only-secret")
+SECRET_KEY_PLACEHOLDER = "请替换为至少50位随机字符串"
+configured_secret_key = os.getenv("DJANGO_SECRET_KEY", "")
+secret_key_is_weak = len(configured_secret_key) < 50 or len(set(configured_secret_key)) < 5
+if not DEBUG and (
+    configured_secret_key == SECRET_KEY_PLACEHOLDER or secret_key_is_weak
+):
+    raise RuntimeError(
+        "DJANGO_SECRET_KEY must be private, at least 50 characters long, and contain at least 5 unique characters "
+        "when DJANGO_DEBUG=false"
+    )
+SECRET_KEY = configured_secret_key or "development-only-secret"
 ALLOWED_HOSTS = [v.strip() for v in os.getenv("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1,testserver").split(",") if v.strip()]
 CSRF_TRUSTED_ORIGINS = [v.strip() for v in os.getenv("CSRF_TRUSTED_ORIGINS", "").split(",") if v.strip()]
 
@@ -31,7 +39,21 @@ TEMPLATES = [{
 }]
 WSGI_APPLICATION = "tracker.wsgi.application"
 DATABASES = {"default": {"ENGINE": "django.db.backends.sqlite3", "NAME": DATA_DIR / "app.sqlite3", "OPTIONS": {"timeout": 20}}}
-AUTH_PASSWORD_VALIDATORS = []
+AUTH_PASSWORD_VALIDATORS = [
+    {
+        "NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator",
+    },
+    {
+        "NAME": "django.contrib.auth.password_validation.MinimumLengthValidator",
+        "OPTIONS": {"min_length": 12},
+    },
+    {
+        "NAME": "django.contrib.auth.password_validation.CommonPasswordValidator",
+    },
+    {
+        "NAME": "django.contrib.auth.password_validation.NumericPasswordValidator",
+    },
+]
 LANGUAGE_CODE = "zh-hans"
 TIME_ZONE = "Asia/Shanghai"
 USE_I18N = True

@@ -16,6 +16,20 @@ def test_task_filter_combines_project_status_and_assignee(admin_client):
 
 
 @pytest.mark.django_db
+def test_task_filter_includes_priority_and_preserves_selection(admin_client):
+    project = Project.objects.create(name="SKU")
+    urgent = Task.objects.create(project=project, title="阻塞项", priority=Task.Priority.URGENT)
+    Task.objects.create(project=project, title="常规项", priority=Task.Priority.NORMAL)
+
+    response = admin_client.get("/tasks/", {"priority": Task.Priority.URGENT})
+
+    assert list(response.context["tasks"]) == [urgent]
+    assert response.context["filters"]["priority"] == Task.Priority.URGENT
+    content = response.content.decode()
+    assert 'value="urgent" selected' in content
+
+
+@pytest.mark.django_db
 def test_dashboard_counts_blocked_tasks(admin_client):
     project = Project.objects.create(name="SKU")
     Task.objects.create(project=project, title="联调", status=Task.Status.BLOCKED)

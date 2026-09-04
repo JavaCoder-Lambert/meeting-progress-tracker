@@ -1,1 +1,20 @@
-{% extends "base.html" %}{% block title %}任务{% endblock %}{% block content %}<div class="page"><div class="page-head"><div><span class="eyebrow">执行清单</span><h1>任务中心</h1></div><div><a class="button" href="{% url 'task_board' %}">看板</a> <a class="button primary" href="{% url 'task_create' %}">新建任务</a></div></div><form class="filters"><select name="project"><option value="">全部项目</option>{% for p in projects %}<option value="{{ p.pk }}">{{ p.name }}</option>{% endfor %}</select><select name="assignee"><option value="">全部人员</option>{% for p in people %}<option value="{{ p.pk }}">{{ p.name }}</option>{% endfor %}</select><select name="status"><option value="">全部状态</option>{% for value,label in statuses %}<option value="{{ value }}">{{ label }}</option>{% endfor %}</select><button class="button">筛选</button></form><div class="table-wrap"><table><thead><tr><th>任务</th><th>项目</th><th>负责人</th><th>状态</th><th>进度</th><th>截止</th></tr></thead><tbody>{% for task in tasks %}<tr><td><a href="{% url 'task_edit' task.pk %}"><strong>{{ task.title }}</strong></a><small>{{ task.current_note }}</small></td><td>{{ task.project.name }}</td><td>{{ task.assignee.name|default:'—' }}</td><td><span class="badge status-{{ task.status }}">{{ task.get_status_display }}</span></td><td>{{ task.progress }}%</td><td class="{% if task.is_overdue %}danger{% endif %}">{{ task.due_date|default:'—' }}</td></tr>{% empty %}<tr><td colspan="6">暂无任务</td></tr>{% endfor %}</tbody></table></div></div>{% endblock %}
+{% extends "base.html" %}
+{% block title %}任务{% endblock %}
+{% block content %}
+  <div class="page">
+    <div class="page-head">
+      <div><span class="eyebrow">执行清单</span><h1>任务中心</h1><p class="muted">集中查看负责人、状态和临近节点。</p></div>
+      <div class="action-group"><a class="button" href="{% url 'task_board' %}">切换看板</a><a class="button primary" href="{% url 'task_create' %}">新建任务</a></div>
+    </div>
+
+    <form class="filters task-filters" aria-label="任务筛选">
+      <label>项目<select name="project"><option value="">全部项目</option>{% for p in projects %}<option value="{{ p.pk }}" {% if filters.project == p.pk|stringformat:"s" %}selected{% endif %}>{{ p.name }}</option>{% endfor %}</select></label>
+      <label>负责人<select name="assignee"><option value="">全部人员</option>{% for p in people %}<option value="{{ p.pk }}" {% if filters.assignee == p.pk|stringformat:"s" %}selected{% endif %}>{{ p.name }}</option>{% endfor %}</select></label>
+      <label>状态<select name="status"><option value="">全部状态</option>{% for value,label in statuses %}<option value="{{ value }}" {% if filters.status == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+      <label>优先级<select name="priority"><option value="">全部优先级</option>{% for value,label in priorities %}<option value="{{ value }}" {% if filters.priority == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+      <div class="filter-actions"><button class="button primary" type="submit">应用筛选</button><a class="button quiet" href="{% url 'task_list' %}">清除</a></div>
+    </form>
+
+    <div class="table-wrap task-table"><table><thead><tr><th>任务</th><th>项目</th><th>负责人</th><th>状态</th><th>优先级</th><th>进度</th><th>截止</th></tr></thead><tbody>{% for task in tasks %}<tr><td><a href="{% url 'task_edit' task.pk %}"><strong>{{ task.title }}</strong></a><small>{{ task.current_note }}</small></td><td>{{ task.project.name }}</td><td>{{ task.assignee.name|default:'—' }}</td><td><span class="badge status-{{ task.status }}">{{ task.get_status_display }}</span></td><td>{{ task.get_priority_display }}</td><td><span class="table-progress"><i style="width:{{ task.progress }}%"></i></span><small>{{ task.progress }}%</small></td><td class="{% if task.is_overdue %}danger{% endif %}">{{ task.due_date|default:'—' }}</td></tr>{% empty %}<tr><td colspan="7"><div class="table-empty">当前条件下没有任务，试试清除筛选。</div></td></tr>{% endfor %}</tbody></table></div>
+  </div>
+{% endblock %}

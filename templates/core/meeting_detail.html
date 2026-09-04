@@ -1,1 +1,76 @@
-{% extends "base.html" %}{% block title %}{{ note.title }}{% endblock %}{% block content %}<div class="page"><div class="page-head"><div><span class="eyebrow">{{ note.meeting_date }}</span><h1>{{ note.title }}</h1></div><span class="badge">{{ note.get_parse_status_display }}</span></div>{% if messages %}{% for message in messages %}<div class="alert">{{ message }}</div>{% endfor %}{% endif %}<div class="grid two"><section class="card"><h2>会议原文</h2><pre class="note-text">{{ note.raw_text }}</pre></section><section class="card"><h2>结构化处理</h2>{% if note.parse_error %}<p class="error">{{ note.parse_error }}</p>{% endif %}{% if latest_draft %}<a class="button" href="{% url 'draft_review' latest_draft.pk %}">查看解析草稿</a>{% endif %}<form method="post" action="{% url 'meeting_parse' note.pk %}">{% csrf_token %}<button class="button primary" type="submit">{% if latest_draft %}重新解析{% else %}AI 解析{% endif %}</button></form></section></div></div>{% endblock %}
+{% extends "base.html" %}
+{% block title %}{{ note.title }}{% endblock %}
+{% block content %}
+  <div class="page meeting-page">
+    <div class="page-head meeting-head">
+      <div>
+        <a class="back-link" href="{% url 'meeting_create' %}">返回快速记录</a>
+        <span class="eyebrow">{{ note.meeting_date|date:"Y年n月j日" }}</span>
+        <h1>{{ note.title }}</h1>
+      </div>
+      <span class="status-badge status-{{ note.parse_status }}" data-note-status>
+        <span class="status-dot" aria-hidden="true"></span>{{ note.get_parse_status_display }}
+      </span>
+    </div>
+
+    <div class="meeting-workspace">
+      <section class="source-panel" aria-labelledby="source-title">
+        <div class="panel-head">
+          <div>
+            <span class="section-kicker">原始信息</span>
+            <h2 id="source-title">会议原文</h2>
+          </div>
+          <span class="text-stat">{{ note.raw_text|length }} 字</span>
+        </div>
+        <pre class="note-text">{{ note.raw_text }}</pre>
+      </section>
+
+      <section class="parse-panel" aria-labelledby="parse-title">
+        <div class="panel-head">
+          <div>
+            <span class="section-kicker">下一步</span>
+            <h2 id="parse-title">整理为项目进度</h2>
+          </div>
+        </div>
+        <p class="panel-intro">AI 会提取负责人、任务进度、截止时间、风险和里程碑。结果先进入草稿，由你确认后再写入。</p>
+
+        {% if note.parse_error %}
+          <div class="inline-feedback error" role="alert">
+            <strong>上次解析未完成</strong>
+            <span>{{ note.parse_error }}</span>
+          </div>
+        {% endif %}
+
+        {% if latest_draft %}
+          <a class="draft-link" href="{% url 'draft_review' latest_draft.pk %}">
+            <span><strong>已有解析草稿</strong><small>继续检查并确认入库</small></span>
+            <b aria-hidden="true">→</b>
+          </a>
+        {% endif %}
+
+        <ol class="process-list" aria-label="解析步骤">
+          <li><span>1</span><div><strong>识别事项</strong><small>拆出任务、进度和负责人</small></div></li>
+          <li><span>2</span><div><strong>匹配项目</strong><small>参考现有项目和未完成任务</small></div></li>
+          <li><span>3</span><div><strong>人工确认</strong><small>确认后才会更新正式数据</small></div></li>
+        </ol>
+
+        <form method="post" action="{% url 'meeting_parse' note.pk %}" data-parse-form>
+          {% csrf_token %}
+          <button class="button primary large parse-button" type="submit" data-parse-button>
+            <span data-button-label>{% if latest_draft %}重新解析这份记录{% else %}开始 AI 解析{% endif %}</span>
+            <span class="button-loader" aria-hidden="true"></span>
+          </button>
+        </form>
+
+        <div class="parse-progress" data-parse-progress role="status" aria-live="polite" hidden>
+          <div class="progress-visual" aria-hidden="true"><i></i><i></i><i></i></div>
+          <div>
+            <strong data-progress-title>正在整理会议内容</strong>
+            <p data-progress-detail>复杂记录通常需要 20–90 秒，请不要重复点击或关闭页面。</p>
+            <span class="elapsed" data-elapsed>已等待 0 秒</span>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+{% endblock %}

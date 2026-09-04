@@ -1,1 +1,47 @@
-{% extends "base.html" %}{% block title %}快速记录{% endblock %}{% block content %}<div class="page narrow"><h1>快速记录</h1><p class="muted">粘贴钉钉群消息或会议记录，原文会先保存。</p><form method="post" class="card form-grid">{% csrf_token %}{{ form.as_p }}<button class="button primary" type="submit">保存原文</button></form></div>{% endblock %}
+{% extends "base.html" %}
+{% block title %}快速记录{% endblock %}
+{% block content %}
+  <div class="page capture-page">
+    <div class="capture-layout">
+      <header class="capture-intro">
+        <span class="eyebrow">快速记录</span>
+        <h1>把零散进度<br>变成可跟踪事项</h1>
+        <p>直接粘贴钉钉群消息、周会记录或自己的速记。先保存原文，再由 AI 拆解，你始终保留最后确认权。</p>
+        <ul class="capture-tips">
+          <li><span>01</span>保留负责人姓名和时间节点</li>
+          <li><span>02</span>完成情况、下一步可以写在一起</li>
+          <li><span>03</span>风险和待定事项会单独识别</li>
+        </ul>
+      </header>
+
+      <form method="post" class="capture-form" data-submit-once>
+        {% csrf_token %}
+        {% if form.non_field_errors %}<div class="inline-feedback error">{{ form.non_field_errors }}</div>{% endif %}
+        <div class="field-row">
+          <div class="field field-grow">
+            <label for="{{ form.title.id_for_label }}">会议标题</label>
+            {{ form.title }}
+            {{ form.title.errors }}
+          </div>
+          <div class="field field-date">
+            <label for="{{ form.meeting_date.id_for_label }}">会议日期</label>
+            {{ form.meeting_date }}
+            {{ form.meeting_date.errors }}
+          </div>
+        </div>
+        <div class="field">
+          <div class="field-label-row">
+            <label for="{{ form.raw_text.id_for_label }}">会议原文</label>
+            <span>支持长文本</span>
+          </div>
+          {{ form.raw_text }}
+          {{ form.raw_text.errors }}
+        </div>
+        <div class="form-actions">
+          <span>保存后可继续检查原文，再开始 AI 解析。</span>
+          <button class="button primary large" type="submit" data-submit-label="正在保存">保存并继续</button>
+        </div>
+      </form>
+    </div>
+  </div>
+{% endblock %}

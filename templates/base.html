@@ -1,1 +1,47 @@
-{% load static %}<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{% block title %}项目进度台{% endblock %}</title><link rel="stylesheet" href="{% static 'css/app.css' %}"></head><body>{% if user.is_authenticated %}<header class="topbar"><a class="brand" href="/">进度台</a><nav><a href="{% url 'meeting_create' %}">快速记录</a><a href="{% url 'project_list' %}">项目</a><a href="{% url 'task_list' %}">任务</a><a href="{% url 'person_list' %}">人员</a><a href="{% url 'report' %}">周报</a><a href="{% url 'settings' %}">设置</a></nav><form method="post" action="{% url 'logout' %}">{% csrf_token %}<button class="link-button">退出</button></form></header>{% endif %}<main>{% if messages %}{% for message in messages %}<div class="toast">{{ message }}</div>{% endfor %}{% endif %}{% block content %}{% endblock %}</main></body></html>
+{% load static %}
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f4f5f1">
+  <title>{% block title %}项目进度台{% endblock %}</title>
+  <link rel="stylesheet" href="{% static 'css/app.css' %}">
+  <script src="{% static 'js/app.js' %}" defer></script>
+</head>
+<body>
+  {% if user.is_authenticated %}
+    {% with current=request.resolver_match.url_name %}
+      <header class="topbar">
+        <div class="topbar-inner">
+          <a class="brand" href="{% url 'dashboard' %}" aria-label="返回工作台">
+            <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+            <span>进度台</span>
+          </a>
+          <nav aria-label="主导航">
+            <a {% if current == 'meeting_create' or current == 'meeting_detail' or current == 'draft_review' %}class="active" aria-current="page"{% endif %} href="{% url 'meeting_create' %}">快速记录</a>
+            <a {% if current == 'project_list' or current == 'project_detail' or current == 'project_create' or current == 'project_edit' %}class="active" aria-current="page"{% endif %} href="{% url 'project_list' %}">项目</a>
+            <a {% if current == 'task_list' or current == 'task_board' or current == 'task_create' or current == 'task_edit' %}class="active" aria-current="page"{% endif %} href="{% url 'task_list' %}">任务</a>
+            <a {% if current == 'person_list' or current == 'person_detail' or current == 'person_create' or current == 'person_edit' %}class="active" aria-current="page"{% endif %} href="{% url 'person_list' %}">人员</a>
+            <a {% if current == 'report' %}class="active" aria-current="page"{% endif %} href="{% url 'report' %}">周报</a>
+            <a {% if current == 'settings' %}class="active" aria-current="page"{% endif %} href="{% url 'settings' %}">设置</a>
+          </nav>
+          <form class="logout-form" method="post" action="{% url 'logout' %}">
+            {% csrf_token %}
+            <button class="link-button" type="submit">退出</button>
+          </form>
+        </div>
+      </header>
+    {% endwith %}
+  {% endif %}
+
+  <main>
+    {% if messages %}
+      <div class="toast-stack" aria-live="polite">
+        {% for message in messages %}<div class="toast {{ message.tags }}">{{ message }}</div>{% endfor %}
+      </div>
+    {% endif %}
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>
