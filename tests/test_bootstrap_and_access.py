@@ -24,3 +24,11 @@ def test_bootstrap_admin_does_not_replace_existing_password(
     user = django_user_model.objects.get(username="owner")
     assert user.check_password("first-secret")
     assert not user.check_password("replacement")
+
+
+def test_login_is_rate_limited_after_repeated_failures(client, db):
+    for _ in range(5):
+        response = client.post("/accounts/login/", {"username": "missing", "password": "wrong"})
+        assert response.status_code == 200
+    response = client.post("/accounts/login/", {"username": "missing", "password": "wrong"})
+    assert response.status_code == 429

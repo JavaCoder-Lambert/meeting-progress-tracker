@@ -32,3 +32,10 @@ def test_csv_export_is_zip(admin_client):
     response = admin_client.get("/settings/export/csv/")
     assert response.status_code == 200
     assert response["Content-Type"] == "application/zip"
+
+
+@pytest.mark.django_db
+def test_weekly_report_page_uses_current_week_by_default(admin_client):
+    response = admin_client.get("/reports/weekly/")
+    assert response.status_code == 200
+    assert "项目周报" in response.content.decode()

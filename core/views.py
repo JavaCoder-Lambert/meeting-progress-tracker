@@ -56,7 +56,7 @@ def _draft_context(draft, error=""):
     task_rows = []
     for item in payload.get("tasks", []):
         task_rows.append({"item": item, "candidates": find_task_candidates(item, Task.objects.exclude(status=Task.Status.DONE))})
-    return {"draft": draft, "note": draft.meeting_note, "task_rows": task_rows, "projects": Project.objects.all(), "people": Person.objects.filter(is_active=True), "error": error}
+    return {"draft": draft, "note": draft.meeting_note, "task_rows": task_rows, "projects": Project.objects.all(), "people": Person.objects.filter(is_active=True), "task_statuses": Task.Status.choices, "error": error}
 
 
 @login_required

@@ -46,7 +46,7 @@
 - Produces: Django project, `/health/`, authenticated `/`, and `manage.py bootstrap_admin`.
 - Consumes: environment variables named in Global Constraints.
 
-- [ ] **Step 1: Write failing access and bootstrap tests**
+- [x] **Step 1: Write failing access and bootstrap tests**
 
 ```python
 def test_dashboard_redirects_anonymous(client):
@@ -70,21 +70,21 @@ def test_bootstrap_admin_does_not_replace_existing_password(settings, monkeypatc
     assert not user.check_password("replacement")
 ```
 
-- [ ] **Step 2: Run tests and verify RED**
+- [x] **Step 2: Run tests and verify RED**
 
 Run: `pytest tests/test_bootstrap_and_access.py -q`
 Expected: FAIL because the Django project and command do not exist.
 
-- [ ] **Step 3: Implement the minimal project, auth pages, health view, and idempotent bootstrap command**
+- [x] **Step 3: Implement the minimal project, auth pages, health view, and idempotent bootstrap command**
 
 The bootstrap command must create a superuser only when no superuser exists, require non-empty environment credentials, and leave existing passwords unchanged.
 
-- [ ] **Step 4: Run tests and verify GREEN**
+- [x] **Step 4: Run tests and verify GREEN**
 
 Run: `pytest tests/test_bootstrap_and_access.py -q`
 Expected: all tests PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add pyproject.toml manage.py tracker core templates tests
@@ -103,7 +103,7 @@ git commit -m "feat: add authenticated Django foundation"
 - Produces: `Project`, `Person`, `MeetingNote`, `ImportDraft`, `Task`, `ProgressUpdate`, `Risk`, and `Milestone` ORM models with enum choices from the spec.
 - Consumes: Django settings and authenticated administrator.
 
-- [ ] **Step 1: Write failing model behavior tests**
+- [x] **Step 1: Write failing model behavior tests**
 
 ```python
 def test_task_progress_is_limited_to_percentage(project):
@@ -123,21 +123,21 @@ def test_project_and_person_names_are_unique(db):
         Project.objects.create(name="金蝶")
 ```
 
-- [ ] **Step 2: Run tests and verify RED**
+- [x] **Step 2: Run tests and verify RED**
 
 Run: `pytest tests/test_models.py -q`
 Expected: FAIL because domain models do not exist.
 
-- [ ] **Step 3: Implement focused models, constraints, indexes, string representations, properties, migration, and admin registration**
+- [x] **Step 3: Implement focused models, constraints, indexes, string representations, properties, migration, and admin registration**
 
 Use database check constraints for progress percentages and uniqueness for project/person names. Index task status, due date, project, and assignee; index meeting date and unresolved risk status.
 
-- [ ] **Step 4: Run tests and verify GREEN**
+- [x] **Step 4: Run tests and verify GREEN**
 
 Run: `pytest tests/test_models.py -q && python manage.py makemigrations --check --dry-run`
 Expected: all tests PASS and no model changes detected.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add core/models.py core/admin.py core/migrations tests/test_models.py
@@ -158,7 +158,7 @@ git commit -m "feat: add project tracking domain models"
 - Produces: `parse_meeting_note(note: MeetingNote) -> ImportDraft`, `ParsedMeeting`, `normalize_date(value, meeting_date)`, and `find_task_candidates(item, queryset)`.
 - Consumes: OpenAI-compatible Chat Completions endpoint and active domain context.
 
-- [ ] **Step 1: Write failing schema and matching tests**
+- [x] **Step 1: Write failing schema and matching tests**
 
 ```python
 def test_yearless_date_uses_meeting_year():
@@ -179,21 +179,21 @@ def test_candidate_match_does_not_update_task(project, person):
     assert existing.title == "发货仓库优先级逻辑调整"
 ```
 
-- [ ] **Step 2: Run tests and verify RED**
+- [x] **Step 2: Run tests and verify RED**
 
 Run: `pytest tests/test_llm_schema.py tests/test_task_matching.py -q`
 Expected: FAIL because service modules do not exist.
 
-- [ ] **Step 3: Implement strict Pydantic schemas, Chinese date normalization, deterministic candidate scoring, safe prompt construction, HTTPX call, JSON extraction, and user-facing error types**
+- [x] **Step 3: Implement strict Pydantic schemas, Chinese date normalization, deterministic candidate scoring, safe prompt construction, HTTPX call, JSON extraction, and user-facing error types**
 
 The client sends only active projects, people, incomplete task summaries, and current note text. It saves raw response on the note, stores validated payload in a new draft, and converts network, HTTP, empty-response, and schema errors into Chinese messages without logging secrets.
 
-- [ ] **Step 4: Run tests and verify GREEN**
+- [x] **Step 4: Run tests and verify GREEN**
 
 Run: `pytest tests/test_llm_schema.py tests/test_task_matching.py -q`
 Expected: all tests PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add core/services tests/test_llm_schema.py tests/test_task_matching.py
@@ -210,7 +210,7 @@ git commit -m "feat: parse meeting notes into validated AI drafts"
 - Produces: `confirm_draft(draft_id: int, decisions: dict) -> ConfirmationResult`.
 - Consumes: validated draft payload and explicit per-item decisions `create`, `update`, or `ignore`.
 
-- [ ] **Step 1: Write failing confirmation tests**
+- [x] **Step 1: Write failing confirmation tests**
 
 ```python
 def test_confirm_creates_records_and_progress_history(parsed_draft, project, person):
@@ -235,19 +235,19 @@ def test_confirmed_draft_cannot_be_confirmed_twice(parsed_draft):
         confirm_draft(parsed_draft.id, valid_decisions(parsed_draft))
 ```
 
-- [ ] **Step 2: Run tests and verify RED**
+- [x] **Step 2: Run tests and verify RED**
 
 Run: `pytest tests/test_draft_confirmation.py -q`
 Expected: FAIL because confirmation service does not exist.
 
-- [ ] **Step 3: Implement atomic confirmation with row locking, full validation before saves, create/update/ignore decisions, progress snapshots, and duplicate confirmation protection**
+- [x] **Step 3: Implement atomic confirmation with row locking, full validation before saves, create/update/ignore decisions, progress snapshots, and duplicate confirmation protection**
 
-- [ ] **Step 4: Run tests and verify GREEN**
+- [x] **Step 4: Run tests and verify GREEN**
 
 Run: `pytest tests/test_draft_confirmation.py -q`
 Expected: all tests PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add core/services/draft_confirmation.py tests/test_draft_confirmation.py
@@ -270,7 +270,7 @@ git commit -m "feat: confirm AI drafts transactionally"
 - Produces: meeting create/detail, parse action, editable review, and confirm endpoints.
 - Consumes: `parse_meeting_note` and `confirm_draft` services.
 
-- [ ] **Step 1: Write failing HTTP workflow tests**
+- [x] **Step 1: Write failing HTTP workflow tests**
 
 ```python
 def test_authenticated_user_can_save_raw_meeting(admin_client):
@@ -285,19 +285,19 @@ def test_confirm_validation_error_writes_nothing(admin_client, draft):
     assert Task.objects.count() == 0
 ```
 
-- [ ] **Step 2: Run tests and verify RED**
+- [x] **Step 2: Run tests and verify RED**
 
 Run: `pytest tests/test_meeting_workflow.py -q`
 Expected: FAIL because routes and templates do not exist.
 
-- [ ] **Step 3: Implement forms, protected views, status transitions, Chinese validation messages, dual-column review template, and PRG redirects after successful writes**
+- [x] **Step 3: Implement forms, protected views, status transitions, Chinese validation messages, dual-column review template, and PRG redirects after successful writes**
 
-- [ ] **Step 4: Run tests and verify GREEN**
+- [x] **Step 4: Run tests and verify GREEN**
 
 Run: `pytest tests/test_meeting_workflow.py -q`
 Expected: all tests PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add core/forms.py core/views.py core/urls.py templates/core tests/test_meeting_workflow.py
@@ -330,7 +330,7 @@ git commit -m "feat: add meeting capture and review workflow"
 - Produces: dashboard metrics, filtered task table/board, project/person detail pages, `build_weekly_report(start, end)`, and secret-free JSON/CSV ZIP exports.
 - Consumes: formal domain records only; reports never modify data.
 
-- [ ] **Step 1: Write failing dashboard, filtering, report, and export tests**
+- [x] **Step 1: Write failing dashboard, filtering, report, and export tests**
 
 ```python
 def test_task_filter_combines_project_status_and_assignee(admin_client, project, person):
@@ -351,19 +351,19 @@ def test_json_export_has_no_credentials(admin_client, settings):
     assert b"never-export-this" not in response.content
 ```
 
-- [ ] **Step 2: Run tests and verify RED**
+- [x] **Step 2: Run tests and verify RED**
 
 Run: `pytest tests/test_dashboard_and_filters.py tests/test_reports_and_exports.py -q`
 Expected: FAIL because query/report/export services and pages do not exist.
 
-- [ ] **Step 3: Implement query services, forms, views, responsive desktop templates, Markdown report generation, clipboard action, JSON export, and per-entity CSV ZIP export**
+- [x] **Step 3: Implement query services, forms, views, responsive desktop templates, Markdown report generation, clipboard action, JSON export, and per-entity CSV ZIP export**
 
-- [ ] **Step 4: Run tests and verify GREEN**
+- [x] **Step 4: Run tests and verify GREEN**
 
 Run: `pytest tests/test_dashboard_and_filters.py tests/test_reports_and_exports.py -q`
 Expected: all tests PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add core templates/core tests/test_dashboard_and_filters.py tests/test_reports_and_exports.py
@@ -387,7 +387,7 @@ git commit -m "feat: add project tracking dashboards and reports"
 - Produces: one-service production Compose deployment with health check and `/data` volume.
 - Consumes: environment configuration and all prior application components.
 
-- [ ] **Step 1: Write failing production configuration tests**
+- [x] **Step 1: Write failing production configuration tests**
 
 ```python
 def test_production_settings_require_secret_key(monkeypatch):
@@ -401,16 +401,16 @@ def test_database_path_uses_data_dir(settings):
     assert settings.DATABASES["default"]["NAME"] == settings.DATA_DIR / "app.sqlite3"
 ```
 
-- [ ] **Step 2: Run tests and verify RED**
+- [x] **Step 2: Run tests and verify RED**
 
 Run: `pytest tests/test_security_settings.py -q`
 Expected: FAIL until production settings are enforced.
 
-- [ ] **Step 3: Implement environment parsing, SQLite WAL initialization, static serving/build, entrypoint migrations/bootstrap, non-root image, Compose volume/health check, and Chinese deployment/backup README**
+- [x] **Step 3: Implement environment parsing, SQLite WAL initialization, static serving/build, entrypoint migrations/bootstrap, non-root image, Compose volume/health check, and Chinese deployment/backup README**
 
 The entrypoint executes migrations and `bootstrap_admin`, then starts Gunicorn with one worker. README includes local development, model configuration, first deployment, Nginx/Caddy proxy expectations, upgrade, stop-and-copy backup, restore, and key rotation.
 
-- [ ] **Step 4: Run automated verification**
+- [x] **Step 4: Run automated verification**
 
 Run: `pytest -q`
 Expected: all tests PASS.
@@ -421,18 +421,18 @@ Expected: no unaddressed production security warnings under documented productio
 Run: `python manage.py makemigrations --check --dry-run`
 Expected: no model changes detected.
 
-- [ ] **Step 5: Run container verification**
+- [x] **Step 5: Run container verification**
 
 Run: `docker compose config && docker compose build && docker compose up -d --wait`
 Expected: configuration valid, image builds, application becomes healthy.
 
 Create a project through the browser, restart with `docker compose restart`, and verify the project remains visible.
 
-- [ ] **Step 6: Run browser acceptance flow**
+- [x] **Step 6: Run browser acceptance flow**
 
 Verify login, raw-note save, model parse or deterministic test endpoint fixture, dual-column review, manual correction, transactional confirmation, task filtering, project/person views, weekly report copy/download, JSON export, CSV ZIP export, password change, and logout.
 
-- [ ] **Step 7: Run final repository checks and commit**
+- [x] **Step 7: Run final repository checks and commit**
 
 Run: `git diff --check && git status --short`
 Expected: no whitespace errors; only intended files are present.
