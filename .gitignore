@@ -1,0 +1,8 @@
+.worktrees/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+.env
+/data/
+/staticfiles/
