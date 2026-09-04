@@ -1,0 +1,1 @@
+{% extends "base.html" %}{% block title %}快速记录{% endblock %}{% block content %}<div class="page narrow"><h1>快速记录</h1><p class="muted">粘贴钉钉群消息或会议记录，原文会先保存。</p><form method="post" class="card form-grid">{% csrf_token %}{{ form.as_p }}<button class="button primary" type="submit">保存原文</button></form></div>{% endblock %}
