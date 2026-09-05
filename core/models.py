@@ -1,3 +1,4 @@
+from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.utils import timezone
@@ -43,6 +44,36 @@ class Person(models.Model):
 
     def __str__(self):
         return self.name
+
+
+class ProjectPhase(TimestampedModel):
+    class Status(models.TextChoices):
+        NOT_STARTED = "not_started", "未开始"
+        IN_PROGRESS = "in_progress", "进行中"
+        DONE = "done", "已完成"
+        DELAYED = "delayed", "已延期"
+
+    project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="phases")
+    name = models.CharField("阶段名称", max_length=120)
+    description = models.TextField("交付内容", blank=True)
+    position = models.PositiveSmallIntegerField("显示顺序", default=1)
+    status = models.CharField("状态", max_length=24, choices=Status.choices, default=Status.NOT_STARTED)
+    start_date = models.DateField("计划开始", null=True, blank=True)
+    end_date = models.DateField("计划完成", null=True, blank=True)
+
+    class Meta:
+        ordering = ["position", "pk"]
+
+    def clean(self):
+        if self.start_date and self.end_date and self.start_date > self.end_date:
+            raise ValidationError({"end_date": "计划完成不能早于计划开始。"})
+
+    @property
+    def is_overdue(self):
+        return bool(self.end_date and self.end_date < timezone.localdate() and self.status != self.Status.DONE)
+
+    def __str__(self):
+        return f"{self.project.name} / {self.name}"
 
 
 class MeetingNote(TimestampedModel):
@@ -93,6 +124,8 @@ class Task(TimestampedModel):
         URGENT = "urgent", "紧急"
 
     project = models.ForeignKey(Project, on_delete=models.PROTECT, related_name="tasks")
+    phase = models.ForeignKey(ProjectPhase, null=True, blank=True, on_delete=models.SET_NULL, related_name="tasks", verbose_name="所属阶段")
+    planned_for = models.DateField("安排日期", null=True, blank=True, db_index=True, help_text="准备在哪天推进，与承诺的截止日期分开管理。")
     title = models.CharField("任务", max_length=240)
     description = models.TextField("说明", blank=True)
     assignee = models.ForeignKey(Person, null=True, blank=True, on_delete=models.SET_NULL, related_name="tasks")
@@ -114,6 +147,12 @@ class Task(TimestampedModel):
     @property
     def is_overdue(self):
         return bool(self.due_date and self.due_date < timezone.localdate() and self.status != self.Status.DONE)
+
+    def clean(self):
+        if self.phase_id and self.project_id and self.phase.project_id != self.project_id:
+            raise ValidationError({"phase": "阶段必须属于当前项目。"})
+        if self.planned_start_date and self.due_date and self.planned_start_date > self.due_date:
+            raise ValidationError({"due_date": "截止日期不能早于计划开始。"})
 
     def __str__(self):
         return self.title
@@ -175,3 +214,25 @@ class Milestone(TimestampedModel):
 
     class Meta:
         ordering = ["target_date", "name"]
+
+
+class ParseJob(TimestampedModel):
+    class Status(models.TextChoices):
+        QUEUED = "queued", "等待解析"
+        RUNNING = "running", "解析中"
+        SUCCESS = "success", "解析完成"
+        FAILED = "failed", "解析失败"
+
+    meeting_note = models.OneToOneField(MeetingNote, on_delete=models.CASCADE, related_name="parse_job")
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.QUEUED, db_index=True)
+    queued_at = models.DateTimeField(default=timezone.now)
+    started_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    lease_expires_at = models.DateTimeField(null=True, blank=True)
+    lease_token = models.UUIDField(null=True, blank=True)
+    attempts = models.PositiveIntegerField(default=0)
+    error = models.TextField(blank=True)
+    draft = models.ForeignKey(ImportDraft, null=True, blank=True, on_delete=models.SET_NULL, related_name="parse_jobs")
+
+    class Meta:
+        ordering = ["queued_at", "pk"]

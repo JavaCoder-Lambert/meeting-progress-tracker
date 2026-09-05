@@ -2,9 +2,10 @@ from datetime import date, timedelta
 
 import pytest
 from django.urls import reverse
+from django.test import override_settings
 from django.utils import timezone
 
-from core.models import ImportDraft, MeetingNote
+from core.models import ImportDraft, MeetingNote, ParseJob
 
 
 @pytest.mark.django_db
@@ -42,11 +43,12 @@ def test_meeting_inbox_shows_state_specific_next_actions_and_uses_only_latest_dr
 
 
 @pytest.mark.django_db
-def test_capture_parse_intent_saves_then_redirects_to_auto_parse_flag_without_calling_model(admin_client, monkeypatch):
+@override_settings(LLM_API_KEY="fake", LLM_MODEL="fake")
+def test_capture_parse_intent_saves_and_enqueues_without_calling_model(admin_client, monkeypatch):
     def fail_if_called(_note):
         raise AssertionError("录入页不应同步解析")
 
-    monkeypatch.setattr("core.views.parse_meeting_note", fail_if_called)
+    monkeypatch.setattr("core.services.parse_jobs.generate_meeting_payload", fail_if_called)
 
     response = admin_client.post(reverse("meeting_create"), {
         "title": "周会", "meeting_date": "2026-09-05", "raw_text": "会议原文", "intent": "parse",
@@ -54,8 +56,9 @@ def test_capture_parse_intent_saves_then_redirects_to_auto_parse_flag_without_ca
 
     note = MeetingNote.objects.get(title="周会")
     assert response.status_code == 302
-    assert response.url == f"{reverse('meeting_detail', args=[note.pk])}?auto_parse=1"
-    assert note.parse_status == MeetingNote.ParseStatus.NOT_PARSED
+    assert response.url == reverse('meeting_detail', args=[note.pk])
+    assert note.parse_status == MeetingNote.ParseStatus.PARSING
+    assert ParseJob.objects.get(meeting_note=note).status == "queued"
 
 
 @pytest.mark.django_db

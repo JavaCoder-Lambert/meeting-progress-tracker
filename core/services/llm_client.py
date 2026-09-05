@@ -4,6 +4,7 @@ import re
 
 import httpx
 from django.conf import settings
+from django.db import transaction
 from pydantic import ValidationError
 
 from core.models import ImportDraft, MeetingNote, Person, Project, Task
@@ -136,31 +137,46 @@ def _http_error_message(exc):
     return f"大模型请求失败（HTTP {status}），请检查接口配置。"
 
 
-def parse_meeting_note(note: MeetingNote) -> ImportDraft:
+def validate_llm_config():
     if not settings.LLM_API_KEY or not settings.LLM_MODEL:
         raise LLMParseError("大模型配置不完整，请设置 LLM_API_KEY 和 LLM_MODEL。")
 
-    note.parse_status = MeetingNote.ParseStatus.PARSING
-    note.parse_error = ""
-    note.save(update_fields=["parse_status", "parse_error", "updated_at"])
+
+def generate_meeting_payload(note: MeetingNote):
+    """Wait for the provider without mutating persistent parsing state."""
+    validate_llm_config()
     body = _request_body(note)
     try:
         content, parsed = asyncio.run(_request_and_parse(body))
     except (TimeoutError, httpx.TimeoutException) as exc:
-        _fail(note, "大模型响应超时。复杂会议可能需要更久，请稍后重试或换用更快的模型。", exc)
+        raise LLMParseError("大模型响应超时。复杂会议可能需要更久，请稍后重试或换用更快的模型。") from exc
     except httpx.HTTPStatusError as exc:
-        _fail(note, _http_error_message(exc), exc)
+        raise LLMParseError(_http_error_message(exc)) from exc
     except httpx.RequestError as exc:
-        _fail(note, "无法连接大模型服务，请检查网络或接口地址。", exc)
+        raise LLMParseError("无法连接大模型服务，请检查网络或接口地址。") from exc
     except (ValidationError, KeyError, IndexError, TypeError, ValueError) as exc:
-        _fail(note, "大模型返回内容格式不正确，已自动修复重试一次。请再次尝试。", exc)
-
-    note.raw_llm_response = content
-    note.parse_status = MeetingNote.ParseStatus.SUCCESS
-    note.parse_error = ""
-    note.save(update_fields=["raw_llm_response", "parse_status", "parse_error", "updated_at"])
+        raise LLMParseError("大模型返回内容格式不正确，已自动修复重试一次。请再次尝试。") from exc
     payload = parsed.model_dump(mode="json")
     for task, item in zip(parsed.tasks, payload["tasks"], strict=True):
         # Includes progress derived from an explicit done status by validation.
         item["_provided_fields"] = sorted(task.model_fields_set)
-    return ImportDraft.objects.create(meeting_note=note, payload=payload)
+    return content, payload
+
+
+def parse_meeting_note(note: MeetingNote) -> ImportDraft:
+    """Synchronous service retained for scripts; web requests enqueue a ParseJob."""
+    validate_llm_config()
+    note.parse_status = MeetingNote.ParseStatus.PARSING
+    note.parse_error = ""
+    note.save(update_fields=["parse_status", "parse_error", "updated_at"])
+    try:
+        content, payload = generate_meeting_payload(note)
+    except LLMParseError as exc:
+        _fail(note, str(exc), exc)
+    with transaction.atomic():
+        draft = ImportDraft.objects.create(meeting_note=note, payload=payload)
+        note.raw_llm_response = content
+        note.parse_status = MeetingNote.ParseStatus.SUCCESS
+        note.parse_error = ""
+        note.save(update_fields=["raw_llm_response", "parse_status", "parse_error", "updated_at"])
+        return draft

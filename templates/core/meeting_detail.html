@@ -4,7 +4,7 @@
   <div class="page meeting-page">
     <div class="page-head meeting-head">
       <div>
-        <a class="back-link" href="{% url 'meeting_create' %}">返回快速记录</a>
+        <a class="back-link" href="{% url 'meeting_list' %}">返回会议记录</a>
         <span class="eyebrow"><time datetime="{{ note.meeting_date|date:"Y-m-d" }}">{{ note.meeting_date|date:"Y年n月j日" }}</time></span>
         <h1>{{ note.title }}</h1>
       </div>
@@ -58,23 +58,23 @@
           <li><span>3</span><div><strong>人工确认</strong><small>确认后才会更新正式数据</small></div></li>
         </ol>
 
-        {% if auto_parse %}<p class="inline-feedback" data-auto-parse>已保存会议记录；正在准备解析。若未自动开始，请点击下方按钮。</p>{% endif %}
-        <form method="post" action="{% url 'meeting_parse' note.pk %}" data-parse-form>
+        <form method="post" action="{% url 'meeting_parse' note.pk %}" data-parse-form data-status-url="{% url 'meeting_parse_status' note.pk %}" data-parse-state="{{ parse_state.state }}" data-started-at="{{ parse_state.started_at|default:'' }}">
           {% csrf_token %}
-          <button class="button primary large parse-button" type="submit" data-parse-button>
-            <span data-button-label>{% if note.parse_status == 'success' and latest_draft %}重新解析这份记录{% elif note.parse_status == 'failed' %}重试解析{% else %}开始 AI 解析{% endif %}</span>
+          <button class="button primary large parse-button" type="submit" data-parse-button {% if parse_active %}disabled{% endif %}>
+            <span data-button-label>{% if parse_active %}正在后台解析{% elif note.parse_status == 'success' and latest_draft %}重新解析这份记录{% elif parse_state.state == 'failed' %}重试解析{% else %}开始 AI 解析{% endif %}</span>
             <span class="button-loader" aria-hidden="true"></span>
           </button>
         </form>
 
-        <div class="parse-progress" data-parse-progress role="status" aria-live="polite" hidden>
+        <div class="parse-progress" data-parse-progress role="status" aria-live="polite" {% if not parse_active %}hidden{% endif %}>
           <div class="progress-visual" aria-hidden="true"><i></i><i></i><i></i></div>
           <div>
-            <strong data-progress-title>正在整理会议内容</strong>
-            <p data-progress-detail>复杂记录通常需要 20–90 秒，请不要重复点击或关闭页面。</p>
+            <strong data-progress-title>{% if parse_state.state == 'queued' %}等待开始解析{% else %}正在整理会议内容{% endif %}</strong>
+            <p data-progress-detail>记录已经保存。你可以离开或关闭页面，稍后回来查看结果。</p>
             <span class="elapsed" data-elapsed>已等待 0 秒</span>
           </div>
         </div>
+        <noscript><p class="muted">解析会在后台继续。稍后<a href="{% url 'meeting_detail' note.pk %}">刷新此页查看结果</a>。</p></noscript>
         {% endif %}
       </section>
     </div>

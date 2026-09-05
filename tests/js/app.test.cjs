@@ -131,17 +131,17 @@ test('copy failure is announced through the status region', async () => {
   assert.match(status.textContent, /复制失败/);
 });
 
-test('auto parse consumes URL intent and submits only once, even with duplicate clicks', async () => {
+test('duplicate parse clicks submit only one durable job', async () => {
   const document = new Document();
   const button = el('button', {'data-parse-button': ''}, el('span', {'data-button-label': ''}));
   const form = el('form', {'data-parse-form': '', action: '/meetings/1/parse/'}, button);
   const progress = el('div', {'data-parse-progress': ''}, ...['title', 'detail'].map(name => el('span', {[`data-progress-${name}`]: ''})), el('span', {'data-elapsed': ''}));
-  document.body.append(form, progress, el('p', {'data-auto-parse': ''}));
+  document.body.append(form, progress);
   let calls = 0;
   const app = loadApp(document, {fetch: async () => { calls += 1; return new Promise(() => {}); }});
   form.requestSubmit();
+  form.requestSubmit();
   assert.equal(calls, 1);
-  assert.equal(new URL(app.window.location.href).searchParams.has('auto_parse'), false);
 });
 
 test('parse failure hides the previous draft link and restores retry', async () => {
@@ -173,6 +173,105 @@ test('URL auto_parse alone never submits without the server intent hook', () => 
   assert.equal(calls, 0);
   form.requestSubmit();
   assert.equal(calls, 1);
+});
+
+function queuedParseUI(state, fetch) {
+  const document = new Document();
+  const button = el('button', {'data-parse-button': ''}, el('span', {'data-button-label': ''}));
+  const form = el('form', {'data-parse-form': '', action: '/meetings/1/parse/',
+    'data-status-url': '/meetings/1/parse-status/', 'data-parse-state': state}, button);
+  const progress = el('div', {'data-parse-progress': ''}, ...['title', 'detail'].map(name => el('span', {[`data-progress-${name}`]: ''})), el('span', {'data-elapsed': ''}));
+  document.body.append(form, progress);
+  let tick;
+  const deadlines = [];
+  const window = {location: {href: '/meetings/1/', assign(value) { this.href = value; }},
+    setInterval(callback) { tick = callback; return 1; }, clearInterval() {},
+    setTimeout(callback) { deadlines.push(callback); return deadlines.length; }, clearTimeout() {}};
+  loadApp(document, {fetch, window});
+  return {form, button, progress, window, tick: () => tick(), expire: () => deadlines.at(-1)()};
+}
+const jsonResponse = data => ({ok: true, status: 200, headers: {get: () => 'application/json'}, json: async () => ({ok: true, ...data})});
+const settle = () => new Promise(resolve => setImmediate(resolve));
+
+test('reloading an active parse only polls and opens the eventual draft without a new POST', async () => {
+  const calls = [];
+  let complete = false;
+  const ui = queuedParseUI('queued', async (url, options) => {
+    calls.push([url, options.method || 'GET']);
+    return jsonResponse(complete ? {state: 'success', redirect_url: '/drafts/7/'} : {state: 'running'});
+  });
+  await settle();
+  assert.equal(ui.button.disabled, true);
+  ui.form.requestSubmit();
+  complete = true; ui.tick(); await settle();
+  assert.equal(ui.window.location.href, '/drafts/7/');
+  assert.deepEqual(calls.map(call => call[1]), ['GET', 'GET']);
+});
+
+test('temporary polling failure preserves the running job and reconnects without resubmitting', async () => {
+  let calls = 0;
+  const ui = queuedParseUI('running', async (_url, options) => {
+    assert.equal(options.method, undefined);
+    if (++calls === 1) throw Error('offline');
+    return jsonResponse({state: 'success', redirect_url: '/drafts/8/'});
+  });
+  await settle();
+  assert.equal(ui.button.disabled, true);
+  assert.match(ui.progress.querySelector('[data-progress-detail]').textContent, /重新连接/);
+  ui.tick(); await settle();
+  assert.equal(ui.window.location.href, '/drafts/8/');
+});
+
+test('lost submit response checks persistent status instead of submitting another job', async () => {
+  const methods = [];
+  const ui = queuedParseUI('not_parsed', async (_url, options) => {
+    methods.push(options.method || 'GET');
+    if (options.method === 'POST') throw Error('connection interrupted after submit');
+    return jsonResponse({state: 'queued'});
+  });
+  ui.form.requestSubmit(); await settle();
+  assert.deepEqual(methods, ['POST', 'GET']);
+  assert.equal(ui.button.disabled, true);
+  assert.match(ui.progress.querySelector('[data-progress-title]').textContent, /等待开始/);
+});
+
+for (const stalledAt of ['headers', 'body']) test(`pending POST ${stalledAt} hits deadline then checks durable status without another POST`, async () => {
+  const methods = [];
+  let submittedSignal;
+  const ui = queuedParseUI('not_parsed', async (_url, options) => {
+    methods.push(options.method || 'GET');
+    if (options.method === 'POST') {
+      submittedSignal = options.signal;
+      if (stalledAt === 'headers') return new Promise(() => {});
+      return {...jsonResponse({}), json: () => new Promise(() => {})};
+    }
+    return jsonResponse({state: 'queued'});
+  });
+  ui.form.requestSubmit(); await settle();
+  ui.expire(); await settle();
+  assert.equal(submittedSignal.aborted, true);
+  assert.deepEqual(methods, ['POST', 'GET']);
+  assert.equal(ui.button.disabled, true);
+  assert.match(ui.progress.querySelector('[data-progress-title]').textContent, /等待开始/);
+});
+
+test('pending status request times out and releases polling guard for the next status check', async () => {
+  let calls = 0;
+  let pollingSignal;
+  const ui = queuedParseUI('running', async (_url, options) => {
+    assert.equal(options.method, undefined);
+    if (++calls === 1) {
+      pollingSignal = options.signal;
+      return new Promise(() => {});
+    }
+    return jsonResponse({state: 'success', redirect_url: '/drafts/9/'});
+  });
+  await settle();
+  ui.expire(); await settle();
+  assert.equal(pollingSignal.aborted, true);
+  ui.tick(); await settle();
+  assert.equal(calls, 2);
+  assert.equal(ui.window.location.href, '/drafts/9/');
 });
 
 test('shortcuts do not hijack fields, composition, editable content or modifiers', () => {

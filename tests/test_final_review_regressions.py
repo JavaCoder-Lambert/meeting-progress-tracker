@@ -6,6 +6,7 @@ import pytest
 
 from core.models import ImportDraft, MeetingNote, Milestone, ProgressUpdate, Project, Risk, Task
 from core.services.draft_confirmation import DraftConfirmationError, confirm_draft
+from core.services.parse_jobs import run_next_job
 
 
 def make_note(**kwargs):
@@ -28,6 +29,7 @@ def parse_task(admin_client, monkeypatch, settings, project, **fields):
     note = make_note()
     response = admin_client.post(f"/meetings/{note.pk}/parse/")
     assert response.status_code == 302
+    assert run_next_job() is True
     return note.drafts.get()
 
 
@@ -212,7 +214,7 @@ def test_imported_parse_post_rejected_before_model_or_new_draft(admin_client, mo
     def forbidden(_note):
         pytest.fail("Imported meeting reached model parser")
 
-    monkeypatch.setattr("core.views.parse_meeting_note", forbidden)
+    monkeypatch.setattr("core.services.parse_jobs.generate_meeting_payload", forbidden)
     headers = {"HTTP_X_REQUESTED_WITH": "XMLHttpRequest"} if ajax else {}
     response = admin_client.post(f"/meetings/{note.pk}/parse/", follow=not ajax, **headers)
     if ajax:
@@ -282,8 +284,12 @@ def test_dashboard_pending_link_lists_exactly_current_success_latest_unconfirmed
 
 
 @pytest.mark.django_db
-def test_auto_parse_requires_one_time_session_intent_from_valid_create_post(admin_client, admin_user):
+def test_only_create_post_enqueues_and_reload_query_or_other_session_never_repeats(admin_client, admin_user, settings):
     from django.test import Client
+    from core.models import ParseJob
+
+    settings.LLM_API_KEY = "fake"
+    settings.LLM_MODEL = "fake"
 
     client = Client()
     other = make_note()
@@ -294,18 +300,21 @@ def test_auto_parse_requires_one_time_session_intent_from_valid_create_post(admi
         "title": "自动解析会议", "meeting_date": "2026-09-05", "raw_text": "原文", "intent": "parse",
     })
     intended = MeetingNote.objects.get(title="自动解析会议")
-    assert response.url == f"/meetings/{intended.pk}/?auto_parse=1"
+    assert response.url == f"/meetings/{intended.pk}/"
+    assert ParseJob.objects.count() == 1
     assert admin_client.get(f"/meetings/{other.pk}/?auto_parse=1").context["auto_parse"] is False
     client.force_login(admin_user)
     assert client.get(response.url).context["auto_parse"] is False
     first = admin_client.get(response.url)
-    assert first.context["auto_parse"] is True
-    assert "data-auto-parse" in first.content.decode()
+    assert first.context["auto_parse"] is False
+    assert first.context["parse_active"] is True
+    assert "data-auto-parse" not in first.content.decode()
     assert "data-parse-form" in first.content.decode()
     second = admin_client.get(response.url)
     assert second.context["auto_parse"] is False
     assert "data-auto-parse" not in second.content.decode()
     assert "data-parse-form" in second.content.decode()
+    assert ParseJob.objects.count() == 1
 
 
 @pytest.mark.django_db
@@ -364,7 +373,7 @@ def test_historical_confirmation_blocks_parse_before_parser_call(admin_client, m
     def forbidden(_note):
         pytest.fail("Already-confirmed historical meeting reached parser")
 
-    monkeypatch.setattr("core.views.parse_meeting_note", forbidden)
+    monkeypatch.setattr("core.services.parse_jobs.generate_meeting_payload", forbidden)
     headers = {"HTTP_X_REQUESTED_WITH": "XMLHttpRequest"} if ajax else {}
     response = admin_client.post(f"/meetings/{note.pk}/parse/", follow=not ajax, **headers)
     if ajax:

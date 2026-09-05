@@ -1,9 +1,10 @@
+# Standalone server stack: do not merge this with docker-compose.yml.
 x-app-environment: &app-environment
-  DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?请在 .env 中设置 DJANGO_SECRET_KEY}
+  DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?请在 .env.server 中设置 DJANGO_SECRET_KEY}
   DJANGO_DEBUG: "false"
-  DJANGO_SECURE_SSL_REDIRECT: ${DJANGO_SECURE_SSL_REDIRECT:-true}
-  DJANGO_ALLOWED_HOSTS: ${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1}
-  CSRF_TRUSTED_ORIGINS: ${CSRF_TRUSTED_ORIGINS:-}
+  DJANGO_SECURE_SSL_REDIRECT: "true"
+  DJANGO_ALLOWED_HOSTS: ${APP_DOMAIN:?请设置域名，不含协议或路径},127.0.0.1
+  CSRF_TRUSTED_ORIGINS: https://${APP_DOMAIN:?请设置 APP_DOMAIN}
   LLM_BASE_URL: ${LLM_BASE_URL:-https://api.openai.com/v1}
   LLM_API_KEY: ${LLM_API_KEY:-}
   LLM_MODEL: ${LLM_MODEL:-}
@@ -11,11 +12,11 @@ x-app-environment: &app-environment
   SECURE_HSTS_SECONDS: ${SECURE_HSTS_SECONDS:-31536000}
 
 x-app-service: &app-service
-  image: meeting-progress-tracker:local
+  image: meeting-progress-tracker:server
   build:
     context: .
     args:
-      PYPI_INDEX_URL: ${PYPI_INDEX_URL:-https://mirrors.aliyun.com/pypi/simple}
+      PYPI_INDEX_URL: ${PYPI_INDEX_URL:-https://pypi.org/simple}
   restart: unless-stopped
   init: true
   volumes:
@@ -29,12 +30,12 @@ x-app-service: &app-service
 services:
   app:
     <<: *app-service
-    ports:
-      - "${APP_BIND:-127.0.0.1}:${APP_PORT:-8000}:8000"
+    expose:
+      - "8000"
     environment:
       <<: *app-environment
       ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?请在 .env 中设置 ADMIN_PASSWORD}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?请在 .env.server 中设置 ADMIN_PASSWORD}
       GUNICORN_TIMEOUT: ${GUNICORN_TIMEOUT:-60}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; r=urllib.request.Request('http://127.0.0.1:8000/health/', headers={'X-Forwarded-Proto':'https'}); urllib.request.urlopen(r, timeout=3)"]
@@ -56,6 +57,31 @@ services:
       timeout: 5s
       retries: 3
       start_period: 15s
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:?请设置 APP_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL:?请设置证书通知邮箱}
+    volumes:
+      - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      app:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   tracker_data:
+    name: ${TRACKER_DATA_VOLUME:-meeting-progress-tracker_tracker_data}
+  caddy_data:
+  caddy_config:

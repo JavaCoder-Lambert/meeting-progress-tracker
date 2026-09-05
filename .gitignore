@@ -5,5 +5,8 @@ __pycache__/
 .pytest_cache/
 .coverage
 .env
+.env.server
+*.sqlite3
+*.sqlite3-*
 /data/
 /staticfiles/

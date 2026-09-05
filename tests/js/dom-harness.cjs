@@ -111,9 +111,9 @@ function element(tag, attrs, ...children) {
 function loadApp(document, overrides = {}) {
   const location = {href: 'http://localhost/meetings/1/?auto_parse=1', assign(value) { this.href = value; }};
   const window = {location, history: {replaceState(_state, _title, url) { location.href = String(url); }},
-    setInterval: () => 1, clearInterval: () => {}};
+    setInterval: () => 1, clearInterval: () => {}, setTimeout: () => 1, clearTimeout: () => {}};
   const context = vm.createContext({document, window, navigator: {clipboard: {writeText: async () => {}}},
-    Event: DOMEvent, FormData: BrowserFormData, URL, console, ...overrides});
+    Event: DOMEvent, FormData: BrowserFormData, URL, AbortController, console, ...overrides});
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../../static/js/app.js'), 'utf8'), context, {filename: 'app.js'});
   document.dispatchEvent(new DOMEvent('DOMContentLoaded'));
   return context;

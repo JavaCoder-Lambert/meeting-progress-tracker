@@ -9,65 +9,124 @@ function setupParseForm() {
   const progressTitle = progress.querySelector("[data-progress-title]");
   const progressDetail = progress.querySelector("[data-progress-detail]");
   const elapsed = progress.querySelector("[data-elapsed]");
-  const originalLabel = buttonLabel.textContent;
   let running = false;
+  let checking = false;
+  let timer = null;
+  let startedAt = Date.now();
+  const statusUrl = form.dataset.statusUrl;
 
-  form.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    if (running) return;
+  const setBusy = () => {
     running = true;
     button.disabled = true;
     button.classList.add("is-loading");
-    buttonLabel.textContent = "解析中";
+    buttonLabel.textContent = "正在后台解析";
     progress.hidden = false;
     progress.classList.remove("is-error");
     progressTitle.textContent = "正在整理会议内容";
-    progressDetail.textContent = "复杂记录通常需要 20–90 秒，请不要重复点击或关闭页面。";
-
-    const startedAt = Date.now();
-    const timer = window.setInterval(() => {
-      elapsed.textContent = `已等待 ${Math.floor((Date.now() - startedAt) / 1000)} 秒`;
-    }, 1000);
-
-    try {
-      const response = await fetch(form.action, {
-        method: "POST",
-        body: new FormData(form),
-        headers: {"X-Requested-With": "XMLHttpRequest", "Accept": "application/json"},
-      });
-      const contentType = response.headers.get("content-type") || "";
-      if (!contentType.includes("application/json")) {
-        throw new Error(`服务器返回异常（HTTP ${response.status}），请刷新后重试。`);
-      }
-      const data = await response.json();
-      if (!response.ok || !data.ok) throw new Error(data.message || "解析未完成，请稍后重试。");
-      progressTitle.textContent = "解析完成，正在打开草稿";
-      progressDetail.textContent = "你可以在下一页核对任务、负责人和日期。";
-      window.location.assign(data.redirect_url);
-    } catch (error) {
-      const draftLink = document.querySelector("[data-draft-link]");
-      if (draftLink) draftLink.hidden = true;
-      if (statusBadge) {
-        statusBadge.className = "status-badge status-failed";
-        statusBadge.textContent = "解析失败";
-      }
-      progress.classList.add("is-error");
-      progressTitle.textContent = "解析未完成";
-      progressDetail.textContent = error.message || "网络连接异常，请稍后重试。";
-      button.disabled = false;
-      button.classList.remove("is-loading");
-      buttonLabel.textContent = originalLabel;
-      running = false;
-    } finally {
+    progressDetail.textContent = "记录已经保存，可以离开或关闭页面，稍后回来查看结果。";
+    const draftLink = document.querySelector("[data-draft-link]");
+    if (draftLink) draftLink.hidden = true;
+  };
+  const fail = (message) => {
+    window.clearInterval(timer);
+    timer = null;
+    if (statusBadge) {
+      statusBadge.className = "status-badge status-failed";
+      statusBadge.textContent = "解析失败";
+    }
+    progress.classList.add("is-error");
+    progressTitle.textContent = "解析未完成";
+    progressDetail.textContent = message;
+    button.disabled = false;
+    button.classList.remove("is-loading");
+    buttonLabel.textContent = "重试解析";
+    running = false;
+  };
+  const showState = (data) => {
+    if ((data.state === "success" || data.state === "imported") && data.redirect_url) {
       window.clearInterval(timer);
+      timer = null;
+      running = false;
+      progressTitle.textContent = "解析完成，正在打开草稿";
+      progressDetail.textContent = "接下来核对任务、负责人和日期。";
+      window.location.assign(data.redirect_url);
+    } else if (data.state === "failed" || data.state === "not_parsed") {
+      fail(data.message || "尚未开始解析，请点击重试。");
+    } else {
+      if (data.started_at) startedAt = Date.parse(data.started_at) || startedAt;
+      progressTitle.textContent = data.state === "queued" ? "等待开始解析" : "正在整理会议内容";
+      progressDetail.textContent = data.message || "解析会在后台继续，可以离开页面。";
+      if (statusBadge) statusBadge.textContent = data.state === "queued" ? "等待解析" : "解析中";
+    }
+  };
+  const readJSON = async (response) => {
+    if (!(response.headers.get("content-type") || "").includes("application/json")) {
+      const error = new Error(response.redirected ? "登录已过期，请刷新页面重新登录。" : `暂时无法获取进度（HTTP ${response.status}），正在重新连接。`);
+      error.stopPolling = response.redirected || response.status === 401 || response.status === 403;
+      throw error;
+    }
+    const data = await response.json();
+    if (!response.ok || !data.ok) {
+      const error = new Error(data.message || "解析未完成，请稍后重试。");
+      error.stopPolling = true;
+      throw error;
+    }
+    return data;
+  };
+  const requestJSON = async (url, options) => {
+    const controller = new AbortController();
+    let deadline;
+    const timeout = new Promise((_, reject) => {
+      deadline = window.setTimeout(() => {
+        controller.abort();
+        reject(new Error("连接超时，正在重新获取解析进度。"));
+      }, 15000);
+    });
+    try {
+      // Keep the body read under the same deadline as the response headers.
+      return await Promise.race([
+        fetch(url, {...options, signal: controller.signal}).then(readJSON), timeout,
+      ]);
+    } finally { window.clearTimeout(deadline); }
+  };
+  const poll = async () => {
+    if (checking || !running || !statusUrl) return;
+    checking = true;
+    try {
+      showState(await requestJSON(statusUrl, {headers: {"Accept": "application/json"}, cache: "no-store"}));
+    } catch (error) {
+      if (error.stopPolling) fail(error.message);
+      else progressDetail.textContent = "连接暂时中断，解析仍在后台继续，正在重新连接。";
+    } finally { checking = false; }
+  };
+  const watch = () => {
+    if (timer !== null) return;
+    timer = window.setInterval(() => {
+      elapsed.textContent = `已等待 ${Math.max(0, Math.floor((Date.now() - startedAt) / 1000))} 秒`;
+      poll();
+    }, 2000);
+    poll();
+  };
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (running) return;
+    startedAt = Date.now();
+    setBusy();
+    try {
+      showState(await requestJSON(form.action, {
+        method: "POST", body: new FormData(form),
+        headers: {"X-Requested-With": "XMLHttpRequest", "Accept": "application/json"},
+      }));
+      if (running) watch();
+    } catch (error) {
+      if (error.stopPolling || !statusUrl) fail(error.message || "网络连接异常，请稍后重试。");
+      else watch(); // A lost response may still have queued the job; only query its state.
     }
   });
-  if (document.querySelector("[data-auto-parse]")) {
-    // Consume the URL intent before submitting, so reload/back never repeats it.
-    const url = new URL(window.location.href);
-    url.searchParams.delete("auto_parse");
-    window.history.replaceState(null, "", url);
-    form.requestSubmit();
+  if (["queued", "running"].includes(form.dataset.parseState)) {
+    setBusy();
+    startedAt = Date.parse(form.dataset.startedAt) || Date.now();
+    watch();
   }
 }
 

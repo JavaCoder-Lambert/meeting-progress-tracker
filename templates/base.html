@@ -9,8 +9,9 @@
   <link rel="icon" href="{% static 'favicon.svg' %}" type="image/svg+xml">
   <link rel="stylesheet" href="{% static 'css/app.css' %}">
   <script src="{% static 'js/app.js' %}" defer></script>
+  <script src="{% static 'js/navigation.js' %}" defer></script>
 </head>
-<body>
+<body class="{% if user.is_authenticated %}app-layout{% endif %}">
   <a class="skip-link" href="#main-content">跳到主要内容</a>
   {% if user.is_authenticated %}
     {% with current=request.resolver_match.url_name %}
@@ -20,7 +21,11 @@
             <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
             <span>进度台</span>
           </a>
+          <details class="nav-menu" open data-nav-menu><summary>导航菜单 <span aria-hidden="true">⌄</span></summary>
           <nav aria-label="主导航">
+            <span class="nav-caption">工作空间</span>
+            <a {% if current == 'dashboard' %}class="active" aria-current="page"{% endif %} href="{% url 'dashboard' %}"><span class="nav-symbol" aria-hidden="true">◫</span>工作台</a>
+            <a {% if current == 'plan_board' %}class="active" aria-current="page"{% endif %} href="{% url 'plan_board' %}"><span class="nav-symbol" aria-hidden="true">▤</span>工作计划</a>
             <a {% if current == 'meeting_list' or current == 'meeting_create' or current == 'meeting_detail' or current == 'draft_review' %}class="active" aria-current="page"{% endif %} href="{% url 'meeting_list' %}">会议</a>
             <a {% if current == 'project_list' or current == 'project_detail' or current == 'project_create' or current == 'project_edit' %}class="active" aria-current="page"{% endif %} href="{% url 'project_list' %}">项目</a>
             <a {% if current == 'task_list' or current == 'task_board' or current == 'task_create' or current == 'task_edit' or current == 'task_detail' or current == 'task_progress_update' %}class="active" aria-current="page"{% endif %} href="{% url 'task_list' %}">任务</a>
@@ -28,6 +33,8 @@
             <a {% if current == 'report' %}class="active" aria-current="page"{% endif %} href="{% url 'report' %}">周报</a>
             <a {% if current == 'settings' %}class="active" aria-current="page"{% endif %} href="{% url 'settings' %}">设置</a>
           </nav>
+          </details>
+          <div class="workspace-note"><strong>个人项目工作空间</strong><span>从会议记录到每周交付</span></div>
           <form class="logout-form" method="post" action="{% url 'logout' %}">
             {% csrf_token %}
             <button class="link-button" type="submit">退出</button>

@@ -4,19 +4,23 @@ from datetime import date, timedelta
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core import signing
+from django.core.exceptions import ValidationError
+from django.core.paginator import Paginator
 from django.db import transaction
-from django.db.models import Prefetch
+from django.db.models import Count, Exists, OuterRef, Prefetch, Q, Subquery
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
+from django.views.decorators.http import require_GET
 
 from .forms import MeetingNoteForm, PersonForm, ProjectForm, TaskForm, TaskProgressForm
-from .models import ImportDraft, MeetingNote, Person, Project, Task
+from .models import ImportDraft, MeetingNote, ParseJob, Person, Project, Task
 from .services.dashboard import dashboard_context
 from .services.draft_confirmation import DraftConfirmationError, confirm_draft
 from .services.exports import build_csv_zip, build_json_export
-from .services.llm_client import LLMParseError, parse_meeting_note
+from .services.llm_client import LLMParseError
+from .services.parse_jobs import enqueue_parse, recover_expired_jobs
 from .services.reports import build_weekly_report
 from .services.draft_review import build_draft_review
 from .services.progress_updates import record_task_progress, sync_task_completion_timestamp
@@ -38,47 +42,66 @@ def meeting_create(request):
     if request.method == "POST" and form.is_valid():
         note = form.save()
         if form.cleaned_data.get("intent") == "parse":
-            request.session["auto_parse_note_id"] = note.pk
-            return redirect(f"{reverse('meeting_detail', args=[note.pk])}?auto_parse=1")
+            try:
+                enqueue_parse(note)
+            except LLMParseError as exc:
+                messages.error(request, str(exc))
         return redirect("meeting_detail", pk=note.pk)
     return render(request, "core/meeting_form.html", {"form": form})
 
 
+def _meeting_notes():
+    drafts = ImportDraft.objects.filter(meeting_note_id=OuterRef("pk")).order_by("-created_at", "-pk")
+    return MeetingNote.objects.annotate(
+        latest_draft_id=Subquery(drafts.values("pk")[:1]),
+        confirmed_draft_id=Subquery(drafts.filter(confirmed_at__isnull=False).values("pk")[:1]),
+        has_confirmed=Exists(drafts.filter(confirmed_at__isnull=False)),
+    )
+
+
+def _parse_state(note):
+    result = {"ok": True, "state": note.parse_status, "message": "", "redirect_url": None,
+              "status_url": reverse("meeting_parse_status", args=[note.pk]), "started_at": None}
+    if note.has_confirmed or note.parse_status == MeetingNote.ParseStatus.IMPORTED:
+        result["state"] = "imported"
+        if note.confirmed_draft_id:
+            result["redirect_url"] = reverse("draft_review", args=[note.confirmed_draft_id])
+    elif note.parse_status == MeetingNote.ParseStatus.SUCCESS and note.latest_draft_id:
+        result["state"] = "success"
+        result["redirect_url"] = reverse("draft_review", args=[note.latest_draft_id])
+    else:
+        job = ParseJob.objects.filter(meeting_note_id=note.pk).only("status", "queued_at", "started_at", "error").first()
+        if job and job.status in (ParseJob.Status.QUEUED, ParseJob.Status.RUNNING):
+            result.update(state=job.status, started_at=(job.started_at or job.queued_at).isoformat())
+            result["message"] = "已加入解析队列，可以离开页面。" if job.status == ParseJob.Status.QUEUED else "正在整理会议内容，可以离开页面，稍后回来查看。"
+        elif note.parse_status in (MeetingNote.ParseStatus.FAILED, MeetingNote.ParseStatus.PARSING):
+            result.update(state="failed", message=note.parse_error or "上次解析已中断，记录已保存。请点击重试。")
+    return result
+
+
 @login_required
 def meeting_detail(request, pk):
-    note = get_object_or_404(
-        MeetingNote.objects.prefetch_related(
-            Prefetch("drafts", queryset=ImportDraft.objects.order_by("-created_at", "-pk"), to_attr="ordered_drafts")
-        ),
-        pk=pk,
-    )
-    confirmed_draft = next((draft for draft in note.ordered_drafts if draft.confirmed_at), None)
-    auto_parse = False
-    if request.GET.get("auto_parse") == "1" and request.session.get("auto_parse_note_id") == note.pk:
-        del request.session["auto_parse_note_id"]
-        auto_parse = note.parse_status == MeetingNote.ParseStatus.NOT_PARSED and confirmed_draft is None
+    recover_expired_jobs()
+    note = get_object_or_404(_meeting_notes().defer("raw_llm_response"), pk=pk)
+    state = _parse_state(note)
     return render(request, "core/meeting_detail.html", {
         "note": note,
-        "latest_draft": note.ordered_drafts[0] if note.ordered_drafts else None,
-        "confirmed_draft": confirmed_draft,
-        "auto_parse": auto_parse,
+        "latest_draft": ImportDraft.objects.only("pk", "confirmed_at").filter(pk=note.latest_draft_id).first(),
+        "confirmed_draft": ImportDraft.objects.only("pk", "confirmed_at").filter(pk=note.confirmed_draft_id).first(),
+        "auto_parse": False,
+        "parse_state": state,
+        "parse_active": state["state"] in ("queued", "running"),
     })
 
 
 @login_required
 def meeting_list(request):
-    meeting_list = list(MeetingNote.objects.prefetch_related(
-        Prefetch("drafts", queryset=ImportDraft.objects.order_by("-created_at", "-pk"), to_attr="ordered_drafts")
-    ))
-    for note in meeting_list:
-        note.latest_draft = note.ordered_drafts[0] if note.ordered_drafts else None
-        note.confirmed_draft = next((draft for draft in note.ordered_drafts if draft.confirmed_at), None)
+    notes = _meeting_notes().defer("raw_text", "raw_llm_response", "parse_error").order_by("-meeting_date", "-pk")
     if request.GET.get("state") == "pending":
-        meeting_list = [note for note in meeting_list
-                        if note.parse_status == MeetingNote.ParseStatus.SUCCESS
-                        and not note.confirmed_draft
-                        and note.latest_draft and not note.latest_draft.confirmed_at]
-    return render(request, "core/meeting_list.html", {"meeting_list": meeting_list})
+        notes = notes.filter(parse_status=MeetingNote.ParseStatus.SUCCESS, has_confirmed=False, latest_draft_id__isnull=False)
+    page = Paginator(notes, 20).get_page(request.GET.get("page"))
+    return render(request, "core/meeting_list.html", {"meeting_list": page, "page_obj": page,
+                  "state_filter": request.GET.get("state", "")})
 
 
 @login_required
@@ -88,17 +111,24 @@ def meeting_parse(request, pk):
         return redirect("meeting_detail", pk=pk)
     wants_json = request.headers.get("X-Requested-With") == "XMLHttpRequest"
     try:
-        if note.parse_status == MeetingNote.ParseStatus.IMPORTED or note.drafts.filter(confirmed_at__isnull=False).exists():
-            raise LLMParseError("该会议已入库，请查看已入库结果；如有新的进展，请新建会议记录。")
-        draft = parse_meeting_note(note)
+        enqueue_parse(note)
     except LLMParseError as exc:
         if wants_json:
             return JsonResponse({"ok": False, "message": str(exc)}, status=422)
         messages.error(request, str(exc))
         return redirect("meeting_detail", pk=pk)
     if wants_json:
-        return JsonResponse({"ok": True, "redirect_url": reverse("draft_review", args=[draft.pk])})
-    return redirect("draft_review", pk=draft.pk)
+        return JsonResponse(_parse_state(_meeting_notes().get(pk=pk)), status=202)
+    messages.success(request, "已加入解析队列，可以离开页面，稍后回来查看结果。")
+    return redirect("meeting_detail", pk=pk)
+
+
+@login_required
+@require_GET
+def meeting_parse_status(request, pk):
+    recover_expired_jobs()
+    note = get_object_or_404(_meeting_notes().defer("raw_text", "raw_llm_response"), pk=pk)
+    return JsonResponse(_parse_state(note))
 
 
 def _draft_context(draft, error="", decisions=None):
@@ -211,7 +241,8 @@ def task_list(request):
     for field in ("project", "assignee", "status", "priority"):
         value = request.GET.get(field, "")
         filters[field] = value
-        if value: tasks = tasks.filter(**{field: value})
+        if value and (field not in {"project", "assignee"} or value.isdecimal() and len(value) < 12):
+            tasks = tasks.filter(**{field: value})
     queue = request.GET.get("queue", "")
     filters["queue"] = queue
     today = timezone.localdate()
@@ -221,8 +252,11 @@ def task_list(request):
         tasks = tasks.exclude(status=Task.Status.DONE).filter(due_date__gte=today, due_date__lte=today + timedelta(days=7))
     elif queue == "stale":
         tasks = tasks.exclude(status=Task.Status.DONE).filter(updated_at__date__lt=today - timedelta(days=7))
+    page = Paginator(tasks.order_by("due_date", "title", "pk"), 30).get_page(request.GET.get("page"))
+    pagination_query = request.GET.copy()
+    pagination_query.pop("page", None)
     return render(request, "core/task_list.html", {
-        "tasks": tasks,
+        "tasks": page, "page_obj": page, "querystring": pagination_query.urlencode(),
         "projects": Project.objects.all(),
         "people": Person.objects.filter(is_active=True),
         "statuses": Task.Status.choices,
@@ -265,7 +299,15 @@ def task_progress_update(request, pk):
     form = TaskProgressForm(request.POST, task=task)
     if not form.is_valid():
         return render(request, "core/task_detail.html", _task_detail_context(task, form))
-    record_task_progress(task, form.cleaned_data)
+    try:
+        record_task_progress(task, form.cleaned_data)
+    except ValidationError as exc:
+        # The task can change after form validation; keep service-level errors
+        # in the same form, including fields absent from this compact editor.
+        for field, errors in getattr(exc, "message_dict", {"__all__": exc.messages}).items():
+            form.add_error(field if field in form.fields else None, errors)
+        task.refresh_from_db()
+        return render(request, "core/task_detail.html", _task_detail_context(task, form))
     messages.success(request, "已记录本次进展。")
     return redirect("task_detail", pk=task.pk)
 
@@ -274,16 +316,23 @@ def task_progress_update(request, pk):
 def task_edit(request, pk=None):
     task = get_object_or_404(Task, pk=pk) if pk else None
     old_progress, old_status = (task.progress, task.status) if task else (None, "")
-    form = TaskForm(request.POST or None, instance=task)
+    project_id = request.GET.get("project", "")
+    initial = {"project": project_id} if project_id.isdecimal() and len(project_id) < 12 else {}
+    form = TaskForm(request.POST or None, instance=task, initial=initial)
     if request.method == "POST" and form.is_valid():
         with transaction.atomic():
             task = form.save(commit=False)
             sync_task_completion_timestamp(task, old_status)
-            task.save()
+            if task.pk and not set(form.changed_data).difference({"planned_for"}):
+                # Replanning is not a progress update and must not reset the
+                # reminder for work that has not received a real update.
+                task.save(update_fields=["planned_for"])
+            else:
+                task.save()
             form.save_m2m()
             if old_progress != task.progress or old_status != task.status:
                 task.progress_updates.create(previous_progress=old_progress, new_progress=task.progress, previous_status=old_status, new_status=task.status)
-        return redirect("task_list")
+        return redirect("task_detail", pk=task.pk)
     return render(request, "core/form_page.html", {"form": form, "title": "编辑任务" if task else "新建任务"})
 
 
@@ -296,7 +345,12 @@ def _model_form_view(request, form_class, instance, title, redirect_name):
 
 @login_required
 def project_list(request):
-    return render(request, "core/project_list.html", {"projects": Project.objects.all()})
+    projects = Project.objects.annotate(
+        task_count=Count("tasks"), done_count=Count("tasks", filter=Q(tasks__status=Task.Status.DONE)),
+    )
+    if request.GET.get("archived") != "1":
+        projects = projects.exclude(status=Project.Status.ARCHIVED)
+    return render(request, "core/project_list.html", {"projects": projects})
 
 
 @login_required

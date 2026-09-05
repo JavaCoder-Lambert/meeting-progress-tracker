@@ -50,6 +50,7 @@
       </section>
 
       <aside>
+        <section class="surface" aria-labelledby="schedule-title"><span class="section-kicker">工作计划</span><h2 id="schedule-title">安排推进日期</h2><p class="muted">{{ task.phase.name|default:'未归属阶段' }}</p><form method="post" action="{% url 'task_schedule' task.pk %}" class="form-grid">{% csrf_token %}<input type="hidden" name="next" value="{{ request.path }}"><label for="task-plan-date">安排日期</label><input id="task-plan-date" type="date" name="planned_for" value="{{ task.planned_for|date:'Y-m-d' }}"><p class="helptext">安排表示准备哪天推进，不会改变截止日期。</p><div class="action-group"><button class="button primary" name="action" value="date" type="submit">保存安排</button><button class="button quiet" name="action" value="today" type="submit">今天</button><button class="button quiet" name="action" value="clear" type="submit">取消安排</button></div></form></section>
         <section class="surface" aria-labelledby="task-summary-title">
           <span class="section-kicker">任务摘要</span><h2 id="task-summary-title">当前状态</h2>
           <p><span class="badge status-{{ task.status }}">{{ task.get_status_display }}</span>　{{ task.progress }}%</p>

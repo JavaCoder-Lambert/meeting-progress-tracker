@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
 
@@ -32,6 +33,13 @@ def _get_optional(model, pk, label):
         return model.objects.get(pk=pk)
     except model.DoesNotExist as exc:
         raise DraftConfirmationError(f"选择的{label}不存在。") from exc
+
+
+def _validate_instance(instance, label):
+    try:
+        instance.full_clean()
+    except ValidationError as exc:
+        raise DraftConfirmationError(f"{label}信息有误：{'；'.join(exc.messages)}") from exc
 
 
 @transaction.atomic
@@ -101,6 +109,10 @@ def confirm_draft(draft_id: int, decisions: dict, payload: dict | None = None) -
             task = _get_optional(Task, decision.get("task_id"), "已有任务")
             if not task:
                 raise DraftConfirmationError(f"任务“{item.title}”选择更新时必须选择已有任务。")
+            if task.risks.exclude(project=project).exists():
+                raise DraftConfirmationError(f"任务“{item.title}”仍关联其他项目的风险，请先调整关联后再移动任务。")
+            if task.phase_id and task.phase.project_id != project.pk:
+                raise DraftConfirmationError(f"任务“{item.title}”仍关联原项目阶段，请先调整所属阶段后再移动任务。")
             previous_progress, previous_status = task.progress, task.status
             preserve_when_empty = {
                 "assignee", "description", "planned_start_date", "due_date",
@@ -116,7 +128,7 @@ def confirm_draft(draft_id: int, decisions: dict, payload: dict | None = None) -
         else:
             raise DraftConfirmationError("任务处理方式无效。")
         sync_task_completion_timestamp(task, previous_status)
-        task.full_clean()
+        _validate_instance(task, "任务")
         task.save()
         for field in TASK_DEFAULTS:
             setattr(item, field, getattr(task, field))
@@ -140,7 +152,10 @@ def confirm_draft(draft_id: int, decisions: dict, payload: dict | None = None) -
             due_date=normalize_date(item.due_date, draft.meeting_note.meeting_date), status=item.status,
             source_meeting=draft.meeting_note,
         )
-        risk.full_clean(); risk.save(); risk_count += 1
+        if risk.task and risk.task.project_id != risk.project_id:
+            raise DraftConfirmationError("风险关联任务必须属于同一项目，请先调整项目或任务关联。")
+        _validate_instance(risk, "风险")
+        risk.save(); risk_count += 1
     milestone_count = 0
     for item, decision in zip(parsed.milestones, milestone_decisions, strict=True):
         if decision["action"] == "ignore":
@@ -153,7 +168,8 @@ def confirm_draft(draft_id: int, decisions: dict, payload: dict | None = None) -
             target_date=normalize_date(item.target_date, draft.meeting_note.meeting_date),
             status=item.status, source_meeting=draft.meeting_note,
         )
-        milestone.full_clean(); milestone.save(); milestone_count += 1
+        _validate_instance(milestone, "里程碑")
+        milestone.save(); milestone_count += 1
     draft.payload = parsed.model_dump(mode="json")
     draft.confirmed_at = timezone.now()
     draft.save(update_fields=["payload", "confirmed_at"])

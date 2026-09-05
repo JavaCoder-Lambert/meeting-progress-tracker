@@ -1,6 +1,6 @@
 ---
 name: Meeting Progress Tracker
-version: 1
+version: 2
 ---
 
 ## Overview
@@ -9,7 +9,7 @@ version: 1
 
 ## Colors
 
-CSS 变量定义于 `static/css/app.css`。正文 `--ink #17231d`，次级文字 `--muted #58665e`，页面 `--paper #f4f5f1`，辅助表面 `--surface #fbfcf9`，内容表面 `--white #ffffff`。绿色主操作 `--accent #28634c` 与 `--accent-dark #1e4d3b`，浅绿状态底色 `--accent-soft #e3eee8`。
+CSS 变量定义于 `static/css/app.css`。正文 `--ink oklch(25% .025 155)`，次级文字 `--muted oklch(46% .017 155)`，页面 `--paper oklch(98% .004 155)`，辅助表面 `--surface oklch(96% .008 155)`，内容表面 `--white oklch(99.5% .002 155)`。绿色主操作 `--accent #28634c` 与 `--accent-dark #1e4d3b`，浅绿状态底色 `--accent-soft #e3eee8`。场景是白天办公室电脑使用，采用浅色低彩度界面。
 
 错误、阻塞、延期采用 `--danger #a43d36` / `--danger-soft #f8e9e6`；需确认文本采用 `--warning #795510`。状态始终附中文标签，不仅依赖颜色。输入边界 `--line-strong #a5b2a8`，键盘焦点使用 3px 实色绿色轮廓。
 
@@ -22,6 +22,12 @@ CSS 变量定义于 `static/css/app.css`。正文 `--ink #17231d`，次级文字
 内容区以边框和留白分组，普通 surface 不使用阴影。导航使用实色背景。仅固定提交条保留轻量阴影帮助识别位置；移动端提交条回到文档流。没有渐变、玻璃模糊、装饰性入场或悬浮位移动效；保留 reduced-motion 保护。
 
 ## Components
+
+- 1040px 以上固定 208px 左侧导航，窄屏原生 details 导航。主内容使用稳定边距，保留明确当前入口。
+- 项目详情由事实摘要、阶段、任务、里程碑和风险组成。时间线展示 8 周，局部可横向滚动；网格线仅表达周边界，进度条使用实色。
+- 工作计划使用独立安排日期；今日、本周、下周、待安排为固定入口。往期未完成有文字标记，调整安排在行内展开。
+- 会议每页 20 条、任务每页 30 条、计划每页 25 条；分页链接保持筛选条件。
+- 后台解析提交后立即返回，刷新自动恢复状态轮询，断网时只重查状态，不自动重复发起模型请求。
 
 - `surface`：表单、任务摘要、负责人跟进和周报内容的统一边界容器；`card` 是兼容旧模板的同类样式。
 - `data-list` / `data-row`：项目、人员、任务时间线和首页队列，适合顺序扫描；相邻条目用分隔线分组。

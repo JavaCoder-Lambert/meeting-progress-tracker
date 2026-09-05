@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}工作计划{% endblock %}
+{% block content %}
+<div class="page">
+  <div class="page-head">
+    <div><span class="eyebrow">安排与执行</span><h1>工作计划</h1><p class="muted">排好要推进的事，保留每个项目的交付节奏。</p></div>
+    <a class="button primary" href="{% url 'task_create' %}">＋ 新建任务</a>
+  </div>
+  <nav class="view-tabs" aria-label="计划周期">
+    <a href="?view=today&project={{ project_filter }}&assignee={{ assignee_filter }}" {% if view == 'today' %}aria-current="page"{% endif %}>今天</a>
+    <a href="?view=week&project={{ project_filter }}&assignee={{ assignee_filter }}" {% if view == 'week' %}aria-current="page"{% endif %}>本周 / 按周</a>
+    <a href="?view=next&project={{ project_filter }}&assignee={{ assignee_filter }}" {% if view == 'next' %}aria-current="page"{% endif %}>下周</a>
+    <a href="?view=unscheduled&project={{ project_filter }}&assignee={{ assignee_filter }}" {% if view == 'unscheduled' %}aria-current="page"{% endif %}>待安排 <span class="count-badge">{{ counts.unscheduled }}</span></a>
+  </nav>
+  <form class="plan-toolbar" method="get" aria-label="计划筛选">
+    <input type="hidden" name="view" value="{{ view }}">
+    <label>项目<select name="project"><option value="">全部项目</option>{% for project in projects %}<option value="{{ project.pk }}" {% if project_filter == project.pk|stringformat:'s' %}selected{% endif %}>{{ project.name }}</option>{% endfor %}</select></label>
+    <label>负责人<select name="assignee"><option value="">全部负责人</option>{% for person in people %}<option value="{{ person.pk }}" {% if assignee_filter == person.pk|stringformat:'s' %}selected{% endif %}>{{ person.name }}</option>{% endfor %}</select></label>
+    {% if view == 'week' %}<label>查看某周<input type="date" name="date" value="{{ start|date:'Y-m-d' }}"></label>{% endif %}
+    <label class="check-field"><input type="checkbox" name="show_done" value="1" {% if show_done %}checked{% endif %}>显示已完成</label>
+    <button class="button" type="submit">应用</button>
+  </form>
+  <div class="section-head plan-period">
+    <div><h2>{% if view == 'unscheduled' %}还未安排的任务{% else %}{{ start|date:'n月j日' }}{% if start != end %} 至 {{ end|date:'n月j日' }}{% endif %}{% endif %}</h2><p class="muted">{{ page_obj.paginator.count }} 项{% if counts.overdue %} · 当前筛选下 {{ counts.overdue }} 项已过交付截止日期{% endif %}</p></div>
+    {% if view == 'week' %}<div class="action-group"><a class="button quiet" href="?view=week&date={{ previous_week|date:'Y-m-d' }}&project={{ project_filter }}&assignee={{ assignee_filter }}">← 前一周</a><a class="button quiet" href="?view=week&date={{ next_week|date:'Y-m-d' }}&project={{ project_filter }}&assignee={{ assignee_filter }}">后一周 →</a></div>{% endif %}
+  </div>
+  <div class="plan-task-list">
+    {% for task in tasks %}
+    <article class="plan-task-row">
+      <div class="plan-date {% if task.carried_over %}danger{% endif %}">{% if task.planned_for %}<time datetime="{{ task.planned_for|date:'Y-m-d' }}"><strong>{{ task.planned_for|date:'m.d' }}</strong><span>{% if task.carried_over %}往期未完成{% else %}安排日期{% endif %}</span></time>{% else %}<strong>待定</strong><span>安排日期</span>{% endif %}</div>
+      <div class="plan-task-info"><div class="inline-meta"><a class="project-label" href="{% url 'project_detail' task.project_id %}">{{ task.project.name }}</a>{% if task.phase %}<span>{{ task.phase.name }}</span>{% endif %}<span class="badge status-{{ task.status }}">{{ task.get_status_display }}</span></div><a class="task-title" href="{% url 'task_detail' task.pk %}">{{ task.title }}</a><p class="muted">{{ task.assignee.name|default:'未指定负责人' }} · {{ task.progress }}%{% if task.due_date %} · <span class="{% if task.is_overdue %}danger{% endif %}">交付截止 {{ task.due_date|date:'m-d' }}</span>{% endif %}</p>{% if task.current_note %}<small>{{ task.current_note|truncatechars:130 }}</small>{% endif %}</div>
+      <details class="schedule-details"><summary class="button quiet">调整安排</summary><form method="post" action="{% url 'task_schedule' task.pk %}" class="schedule-form">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><label for="schedule-{{ task.pk }}">安排日期</label><input id="schedule-{{ task.pk }}" type="date" name="planned_for" value="{{ task.planned_for|date:'Y-m-d' }}"><button class="button primary" type="submit" name="action" value="date">保存日期</button><div class="action-group"><button class="button quiet" name="action" value="today">今天</button><button class="button quiet" name="action" value="next_week">下周一</button><button class="button quiet" name="action" value="clear">取消安排</button></div></form></details>
+    </article>
+    {% empty %}<div class="empty-state"><h3>这段时间还没有安排</h3><p>从待安排任务中挑选要推进的事项，也可以在任务编辑页设置安排日期。</p><a class="button" href="?view=unscheduled">查看待安排任务</a></div>{% endfor %}
+  </div>
+  {% include 'core/partials/pagination.html' %}
+  <p class="footnote">安排日期表示准备哪天推进；截止日期表示承诺何时交付。往期未完成的安排会持续显示。</p>
+</div>
+{% endblock %}

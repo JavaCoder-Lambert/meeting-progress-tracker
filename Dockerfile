@@ -11,7 +11,7 @@ COPY core core
 COPY templates templates
 COPY static static
 COPY docker/entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh && DJANGO_DEBUG=true python manage.py collectstatic --noinput
+RUN chmod +x /entrypoint.sh && DJANGO_SECRET_KEY=build-only-static-collection-not-a-runtime-secret-key-1234567890 python manage.py collectstatic --noinput
 USER app
 EXPOSE 8000
 ENTRYPOINT ["/entrypoint.sh"]

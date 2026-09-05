@@ -2,9 +2,10 @@ from datetime import date
 
 import pytest
 from django.urls import reverse
+from django.test import override_settings
 from django.utils import timezone
 
-from core.models import ImportDraft, MeetingNote, Milestone, Project, Risk, Task
+from core.models import ImportDraft, MeetingNote, Milestone, ParseJob, Project, Risk, Task
 from core.services.llm_client import LLMParseError
 
 
@@ -35,18 +36,22 @@ def test_meeting_detail_exposes_accessible_parse_progress(admin_client):
 
 
 @pytest.mark.django_db
-def test_ajax_parse_success_returns_draft_destination(admin_client, monkeypatch):
+@override_settings(LLM_API_KEY="fake", LLM_MODEL="fake")
+def test_ajax_parse_returns_accepted_without_waiting_for_model(admin_client, monkeypatch):
     note = MeetingNote.objects.create(title="周会", meeting_date=date(2026, 9, 4), raw_text="记录")
-    draft = ImportDraft.objects.create(meeting_note=note, payload={"summary": "", "tasks": [], "risks": [], "milestones": [], "uncertainties": []})
-    monkeypatch.setattr("core.views.parse_meeting_note", lambda parsed_note: draft)
+    monkeypatch.setattr("core.services.parse_jobs.generate_meeting_payload", lambda _: pytest.fail("HTTP 不应调用模型"))
 
     response = admin_client.post(
         f"/meetings/{note.id}/parse/",
         HTTP_X_REQUESTED_WITH="XMLHttpRequest",
     )
 
-    assert response.status_code == 200
-    assert response.json() == {"ok": True, "redirect_url": f"/drafts/{draft.id}/"}
+    assert response.status_code == 202
+    assert response.json()["state"] == "queued"
+    assert response.json()["status_url"] == f"/meetings/{note.pk}/parse-status/"
+    assert response.json()["redirect_url"] is None
+    assert ParseJob.objects.count() == 1
+    assert ImportDraft.objects.count() == 0
 
 
 @pytest.mark.django_db
@@ -56,7 +61,7 @@ def test_ajax_parse_failure_returns_inline_error(admin_client, monkeypatch):
     def fail(_note):
         raise LLMParseError("模型返回内容格式不正确，请重试。")
 
-    monkeypatch.setattr("core.views.parse_meeting_note", fail)
+    monkeypatch.setattr("core.views.enqueue_parse", fail)
 
     response = admin_client.post(
         f"/meetings/{note.id}/parse/",
@@ -68,15 +73,16 @@ def test_ajax_parse_failure_returns_inline_error(admin_client, monkeypatch):
 
 
 @pytest.mark.django_db
+@override_settings(LLM_API_KEY="fake", LLM_MODEL="fake")
 def test_regular_parse_success_keeps_redirect_fallback(admin_client, monkeypatch):
     note = MeetingNote.objects.create(title="周会", meeting_date=date(2026, 9, 4), raw_text="记录")
-    draft = ImportDraft.objects.create(meeting_note=note, payload={"summary": "", "tasks": [], "risks": [], "milestones": [], "uncertainties": []})
-    monkeypatch.setattr("core.views.parse_meeting_note", lambda parsed_note: draft)
+    monkeypatch.setattr("core.services.parse_jobs.generate_meeting_payload", lambda _: pytest.fail("HTTP 不应调用模型"))
 
     response = admin_client.post(reverse("meeting_parse", args=[note.id]))
 
     assert response.status_code == 302
-    assert response.url == reverse("draft_review", args=[draft.id])
+    assert response.url == reverse("meeting_detail", args=[note.id])
+    assert ParseJob.objects.get(meeting_note=note).status == "queued"
 
 
 @pytest.mark.django_db
@@ -86,7 +92,7 @@ def test_regular_parse_failure_keeps_message_fallback(admin_client, monkeypatch)
     def fail(_note):
         raise LLMParseError("用于页面展示的错误")
 
-    monkeypatch.setattr("core.views.parse_meeting_note", fail)
+    monkeypatch.setattr("core.views.enqueue_parse", fail)
 
     response = admin_client.post(reverse("meeting_parse", args=[note.id]), follow=True)
 

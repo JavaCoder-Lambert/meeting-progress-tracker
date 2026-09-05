@@ -5,6 +5,8 @@
 ## 功能
 
 - 单管理员登录
+- 项目计划：手动维护阶段、里程碑、任务归属和风险，8 周时间线展示交付节奏
+- 工作计划：今日、本周、下周、待安排视图，独立安排日期与截止日期，往期未完成持续显示
 - 会议收件箱：按未解析、解析失败、待确认、已入库展示下一步，可从失败处重试
 - 新会议默认“保存并开始解析”，也可仅保存原文后再解析
 - AI 草稿异常优先：项目缺失、日期异常、人员未匹配、疑似重复默认展开；支持只看异常、批量接受推荐或批量忽略异常项
@@ -14,8 +16,12 @@
 - `/` 聚焦任务搜索，`n` 新建会议；在输入框、可编辑区域或使用组合/修饰键时不会劫持按键
 - JSON 与 CSV ZIP 导出
 - SQLite 持久化和 Docker Compose 部署
+- 后台 AI 解析：提交后可继续查看项目，刷新或关闭页面不丢失；失败可重试
+- 美国服务器部署模板：Caddy 自动 HTTPS、独立解析 worker、静态文件压缩与版本缓存、在线数据库备份
 
-## Docker 部署
+## 本机 Docker 启动
+
+使用自有服务器和域名时直接按 [服务器部署手册](docs/deployment.md) 操作；它使用独立的 `docker-compose.server.yml`，已包含 HTTPS。
 
 ```bash
 cp .env.example .env
@@ -49,11 +55,11 @@ docker compose port app 8000
 docker compose up -d --force-recreate
 ```
 
-解析是同步的真实模型请求，供应商生成复杂会议可能需要 20–90 秒；但默认 `LLM_TIMEOUT_SECONDS=60`，约 60 秒仍未完成的请求会被应用中止。等待反馈和失败后的重试入口不会让模型生成变快。该值是首次请求和最多一次格式修复共享的端到端墙钟上限；若提高它，必须同时把 `GUNICORN_TIMEOUT` 和反向代理读取超时提高到更大的值。`GUNICORN_TIMEOUT` 只是进程级保护，不是模型请求的 deadline。若更看重响应速度，可在 `.env` 中选择同一服务商提供的轻量模型。
+AI 解析由独立 `worker` 处理，页面提交后立即返回，刷新或暂时离开页面不会取消已排队的请求。默认模型 deadline 为 `LLM_TIMEOUT_SECONDS=180` 秒，首次请求和最多一次格式修复共享此上限；网页进程不再需要等待模型。超时或 worker 中断后会显示失败，重试由你决定，避免后台反复产生模型费用。`GUNICORN_TIMEOUT` 只保护网页进程，与模型等待时间独立。若仍希望缩短解析完成时间，可选择同一服务商的轻量模型。
 
 ### 域名与 HTTPS
 
-应用监听服务器的 `.env` 中 `APP_PORT`；反向代理应转发到同一个本机端口，例如 `APP_PORT=18080` 时使用 `http://127.0.0.1:18080`，并传递 `Host`、`X-Forwarded-For` 和 `X-Forwarded-Proto`。绑定域名的生产环境必须使用 HTTPS，并将完整 HTTPS 地址写入 `CSRF_TRUSTED_ORIGINS`。若使用 Nginx，请为解析接口设置高于 `LLM_TIMEOUT_SECONDS` 的读取超时，例如 `proxy_read_timeout 300s;`，避免代理层先于应用 deadline 断开。
+推荐使用 [Caddy 服务器栈](docs/deployment.md)，只需填写域名和证书通知邮箱。若已有同机 Nginx，可继续使用本机 Compose：代理转发到 `.env` 的 `APP_PORT`，例如 `http://127.0.0.1:18080`，并正确设置 `Host`、`X-Forwarded-For`、`X-Forwarded-Proto`。生产环境必须使用 HTTPS，并将完整 HTTPS 地址写入 `CSRF_TRUSTED_ORIGINS`。解析已在后台执行，不需要为解析请求额外拉长代理超时。
 
 只在本机通过 HTTP 直接验收容器时，可临时设置 `DJANGO_SECURE_SSL_REDIRECT=false`；绑定域名后应恢复为 `true`。注意：非 Debug 的会话与 CSRF Cookie 仍标记为 Secure，因此普通 HTTP 下登录并不可靠；健康检查可带 `X-Forwarded-Proto: https`，完整登录验收请使用 HTTPS，或使用独立临时数据库并以 `DJANGO_DEBUG=true` 运行本地服务。
 
@@ -62,31 +68,32 @@ docker compose up -d --force-recreate
 升级前先备份，再拉取新代码并执行：
 
 ```bash
-docker compose up -d --build
+docker compose stop worker app
+docker compose run --rm --no-deps app python manage.py backup_db
+git pull --ff-only
+docker compose up -d --build --wait
 ```
 
-入口脚本会自动执行数据库迁移。
+只有 app 的入口脚本会自动执行数据库迁移，worker 会等 app 健康后开始工作。上述命令模式不会迁移数据库。从没有 `backup_db` 的旧版首次升级时，先拉代码并 `docker compose build app`，再用新镜像执行上述 `run ... backup_db` 保存原库，最后 `up`。
 
 ### 备份与恢复
 
-一致性备份时短暂停止应用：
+在线备份包含会议、计划、任务、登录账户及解析队列，使用 SQLite backup API 读取已提交数据，并验证完整性。命令输出备份路径和 SHA256；不会覆盖已有备份，也不会导出 `.env` 中的 API Key。
 
 ```bash
-docker compose stop app
-docker run --rm -v meeting-progress-tracker_tracker_data:/data -v "$PWD":/backup alpine tar czf /backup/tracker-data.tar.gz -C /data .
-docker compose start app
+docker compose exec -T app python manage.py backup_db
+docker compose cp app:/data/backups/命令输出的文件名.sqlite3 ./backup.sqlite3
 ```
 
-恢复到空数据卷：
+备份默认存在数据卷 `/data/backups`，请定期复制到服务器以外的可信位置；同一磁盘上的备份不能防止磁盘故障。当前没有上传附件功能，预留的 `/data/uploads` 不属于数据库备份。备份文件包含业务数据和账户密码哈希，应妥善保管。
+
+恢复命令只允许目标不存在，不会覆盖现有数据库；可先在独立路径演练：
 
 ```bash
-docker compose down
-docker volume create meeting-progress-tracker_tracker_data
-docker run --rm -v meeting-progress-tracker_tracker_data:/data -v "$PWD":/backup alpine sh -c 'cd /data && tar xzf /backup/tracker-data.tar.gz'
-docker compose up -d
+docker compose exec -T app python manage.py restore_db /data/backups/命令输出的文件名.sqlite3 --target /data/recovery-check/app.sqlite3
 ```
 
-卷名受目录名或 `COMPOSE_PROJECT_NAME` 影响，可先运行 `docker volume ls` 确认实际名称。
+正式恢复时先停止 app 和 worker，并恢复到新数据卷；按 [恢复与回退步骤](docs/deployment.md#恢复与回退) 切换，旧数据卷仍保留。
 
 ## 本地开发
 
@@ -97,6 +104,8 @@ uv run python manage.py migrate
 ADMIN_USERNAME=admin ADMIN_PASSWORD=dev-password uv run python manage.py bootstrap_admin
 uv run python manage.py runserver
 ```
+
+在第二个终端启动后台解析进程：`uv run python manage.py run_parse_worker`。两个进程必须使用相同 `DATA_DIR` 和大模型环境变量。本地 `uv run` 不会自动读取 `.env`，可用 `uv run --env-file .env ...` 为两个命令明确加载配置。
 
 测试：
 
@@ -111,7 +120,16 @@ uv run python manage.py makemigrations --check --dry-run
 git diff --check
 ```
 
-本地浏览器验收可在独立临时数据库启动 Debug 服务，避免写入 `data/app.sqlite3`；不要向真实 LLM 服务提交测试会议。`auto_parse` 可通过拦截或模拟验证，仓库内的 Node 行为测试覆盖其一次性触发与表单 intent 保留。
+本地浏览器验收可在独立临时数据库启动 Debug 服务，避免写入 `data/app.sqlite3`；不要向真实 LLM 服务提交测试会议。可模拟后台 worker 验证入队、页面离开与刷新后的状态恢复；仓库内的 Node 行为测试覆盖重复点击、断网重连和表单 intent 保留。
+
+## 计划怎么使用
+
+1. 在项目页添加阶段（例如数据改造、开发联调、验收上线），设置各阶段起止日期。
+2. 添加任务并选择所属阶段，设置任务截止日期；里程碑记录内测、验收、上线等关键节点。
+3. 在「工作计划 → 待安排」里把任务安排到今天或下周一，也可指定日期。安排只改变推进日期，不会修改交付截止日期或把未更新的任务标成已有进展。
+4. 在任务详情记录实际进展；项目页切到「计划时间线」检查未来 8 周。风险解决后在风险记录中关闭，可从项目页展开关闭历史重新查看。
+
+项目总体进度保留人工判断；任务完成数单独展示，避免用任务数量平均值代替项目真实完成度。会议列表、任务列表和工作计划分别按 20、30、25 条分页。
 
 ## 数据位置
 

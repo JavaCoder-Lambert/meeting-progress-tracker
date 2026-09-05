@@ -1,13 +1,16 @@
 from django.urls import path
-from . import views
+from . import planning_views, views
 
 urlpatterns = [
     path("health/", views.health, name="health"),
     path("", views.dashboard, name="dashboard"),
+    path("plans/", planning_views.plan_board, name="plan_board"),
+    path("tasks/<int:pk>/schedule/", planning_views.task_schedule, name="task_schedule"),
     path("meetings/", views.meeting_list, name="meeting_list"),
     path("meetings/new/", views.meeting_create, name="meeting_create"),
     path("meetings/<int:pk>/", views.meeting_detail, name="meeting_detail"),
     path("meetings/<int:pk>/parse/", views.meeting_parse, name="meeting_parse"),
+    path("meetings/<int:pk>/parse-status/", views.meeting_parse_status, name="meeting_parse_status"),
     path("drafts/<int:pk>/", views.draft_review, name="draft_review"),
     path("drafts/<int:pk>/confirm/", views.draft_confirm, name="draft_confirm"),
     path("tasks/", views.task_list, name="task_list"),
@@ -18,7 +21,13 @@ urlpatterns = [
     path("tasks/<int:pk>/edit/", views.task_edit, name="task_edit"),
     path("projects/", views.project_list, name="project_list"),
     path("projects/new/", views.project_edit, name="project_create"),
-    path("projects/<int:pk>/", views.project_detail, name="project_detail"),
+    path("projects/<int:pk>/", planning_views.project_plan, name="project_detail"),
+    path("projects/<int:project_pk>/phases/new/", planning_views.phase_edit, name="phase_create"),
+    path("phases/<int:pk>/edit/", planning_views.phase_edit, name="phase_edit"),
+    path("projects/<int:project_pk>/milestones/new/", planning_views.milestone_edit, name="milestone_create"),
+    path("milestones/<int:pk>/edit/", planning_views.milestone_edit, name="milestone_edit"),
+    path("projects/<int:project_pk>/risks/new/", planning_views.risk_edit, name="risk_create"),
+    path("risks/<int:pk>/edit/", planning_views.risk_edit, name="risk_edit"),
     path("projects/<int:pk>/edit/", views.project_edit, name="project_edit"),
     path("people/", views.person_list, name="person_list"),
     path("people/new/", views.person_edit, name="person_create"),

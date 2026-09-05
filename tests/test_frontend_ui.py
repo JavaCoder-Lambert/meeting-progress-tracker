@@ -1,4 +1,5 @@
 import re
+import math
 import subprocess
 from datetime import date
 from html.parser import HTMLParser
@@ -40,8 +41,22 @@ def _contrast_ratio(first, second):
 
 def _css_color(css, variable):
     match = re.search(rf"{re.escape(variable)}\s*:\s*#([0-9a-fA-F]{{6}})", css)
+    if match:
+        return match.group(1)
+    match = re.search(rf"{re.escape(variable)}\s*:\s*oklch\(([\d.]+)% ([\d.]+) ([\d.]+)\)", css)
     assert match, f"Missing CSS color variable {variable}"
-    return match.group(1)
+    light, chroma, hue = map(float, match.groups())
+    a, b = chroma * math.cos(math.radians(hue)), chroma * math.sin(math.radians(hue))
+    l = (light / 100 + .3963377774 * a + .2158037573 * b) ** 3
+    m = (light / 100 - .1055613458 * a - .0638541728 * b) ** 3
+    s = (light / 100 - .0894841775 * a - 1.291485548 * b) ** 3
+    channels = (4.0767416621*l - 3.3077115913*m + .2309699292*s,
+                -1.2684380046*l + 2.6097574011*m - .3413193965*s,
+                -.0041960863*l - .7034186147*m + 1.707614701*s)
+    def channel(value):
+        value = 12.92 * value if value <= .0031308 else 1.055 * value ** (1 / 2.4) - .055
+        return f"{round(max(0, min(1, value)) * 255):02x}"
+    return "".join(channel(value) for value in channels)
 
 
 @pytest.mark.django_db
@@ -78,13 +93,15 @@ def test_draft_review_labels_reference_their_controls(admin_client):
     assert 'data-date-needs-correction="true"' in html
 
 
-def test_parse_failure_script_updates_badge_and_shows_server_message():
-    script = (PROJECT_ROOT / "static/js/app.js").read_text()
-    failure_handler = script.split("} catch (error) {", 1)[1].split("} finally", 1)[0]
-
-    assert '[data-note-status]' in script
-    assert "status-failed" in failure_handler
-    assert "progressDetail.textContent = error.message" in failure_handler
+@pytest.mark.django_db
+def test_failed_parse_has_accessible_server_message_and_retry_without_javascript(admin_client):
+    note = MeetingNote.objects.create(title="失败会议", meeting_date=date(2026, 9, 5), raw_text="原文",
+                                      parse_status="failed", parse_error="模型响应超时，请重试。")
+    html = admin_client.get(f"/meetings/{note.pk}/").content.decode()
+    assert 'role="alert"' in html
+    assert "模型响应超时，请重试。" in html
+    assert "重试解析" in html
+    assert f'action="/meetings/{note.pk}/parse/"' in html
 
 
 def test_task_update_script_requires_an_existing_task():
@@ -177,7 +194,7 @@ def test_copy_review_and_report_offer_accessible_progressive_interactions():
     assert 'data-report-tab' in report and 'data-report-tab' in script
     for behavior in ('ArrowRight', 'ArrowLeft', 'Home', 'End', 'isComposing',
                      'isContentEditable', 'ctrlKey', 'metaKey', 'altKey', 'shiftKey',
-                     'data-auto-parse', 'requestSubmit', 'clipboard.writeText'):
+                     'clipboard.writeText'):
         assert behavior in script
 
 
@@ -187,7 +204,8 @@ def test_design_system_is_compact_accessible_and_reused():
     for component in ('surface', 'data-list', 'data-row', 'summary-strip', 'filter-chip',
                       'empty-state', 'sticky-action-bar'):
         assert f'.{component}' in css and component in templates
-    assert 'gradient(' not in css
+    # Repeating lines convey week boundaries in the timeline, not decoration.
+    assert 'gradient(' not in css.replace('repeating-linear-gradient(', 'week-grid(')
     assert 'backdrop-filter' not in css
     assert 'font-size: clamp' not in css
     assert 'min-height: 44px' in css

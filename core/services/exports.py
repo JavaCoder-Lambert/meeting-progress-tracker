@@ -6,9 +6,9 @@ from datetime import date, datetime
 
 from django.forms.models import model_to_dict
 
-from core.models import MeetingNote, Milestone, Person, ProgressUpdate, Project, Risk, Task
+from core.models import MeetingNote, Milestone, Person, ProgressUpdate, Project, ProjectPhase, Risk, Task
 
-MODELS = [Project, Person, MeetingNote, Task, ProgressUpdate, Risk, Milestone]
+MODELS = [Project, ProjectPhase, Person, MeetingNote, Task, ProgressUpdate, Risk, Milestone]
 
 
 def _json_value(value):
@@ -33,6 +33,6 @@ def build_csv_zip() -> bytes:
             writer = csv.writer(text)
             writer.writerow(fields)
             for row in model.objects.all():
-                writer.writerow([_json_value(getattr(row, field)) for field in fields])
+                writer.writerow([_json_value(getattr(row, field.attname)) for field in model._meta.fields])
             archive.writestr(f"{model._meta.model_name}.csv", "\ufeff" + text.getvalue())
     return output.getvalue()
