@@ -117,7 +117,28 @@ function setupReview() {
   const empty = form.querySelector("[data-review-empty]");
   let filter = "all";
   const actionOf = (row) => row.querySelector('select[name$="_action"]');
-  const needsAttention = (row) => row.dataset.needsAttention === "true" && row.dataset.reviewed !== "true";
+  const validDate = (value) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || value.startsWith("0000")) return false;
+    const parsed = new Date(`${value}T00:00:00Z`);
+    return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+  };
+  const needsAttention = (row) => {
+    const action = actionOf(row).value;
+    if (action !== "ignore") {
+      // Validate only controls explicitly present on this row; supplemental rows
+      // do not necessarily expose the same fields as tasks.
+      const project = row.querySelector("[data-review-project]");
+      if (project && !project.value) return true;
+      const existing = row.querySelector("[data-existing-field] select");
+      if (action === "update" && (!existing || !existing.value)) return true;
+      const invalidDate = Array.from(row.querySelectorAll("[data-review-date]")).some((field) => {
+        const value = field.value.trim();
+        return (value || field.dataset.dateNeedsCorrection === "true") && !validDate(value);
+      });
+      if (invalidDate) return true;
+    }
+    return row.dataset.needsAttention === "true" && row.dataset.reviewed !== "true";
+  };
   const labels = {create: "新建", update: "更新", ignore: "忽略"};
   const sync = () => {
     const counts = {create: 0, update: 0, ignore: 0, attention: 0};
@@ -139,13 +160,15 @@ function setupReview() {
     filter = button.dataset.reviewFilter;
     sync();
   }));
-  // Only an explicit decision resolves an attention flag; editing text alone does not.
-  form.addEventListener("change", (event) => {
+  // A decision acknowledges matching warnings, but cannot bypass invalid fields.
+  const onEdit = (event) => {
     const row = event.target.closest("[data-review-row]");
     if (!row) return;
-    if (event.target === actionOf(row)) row.dataset.reviewed = "true";
+    if (event.target === actionOf(row) || actionOf(row).value !== "ignore") row.dataset.reviewed = "true";
     sync();
-  });
+  };
+  form.addEventListener("change", onEdit);
+  form.addEventListener("input", onEdit);
   form.querySelectorAll("[data-batch-action]").forEach((button) => button.addEventListener("click", () => {
     rows.forEach((row) => {
       const action = actionOf(row);

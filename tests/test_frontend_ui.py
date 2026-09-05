@@ -1,4 +1,5 @@
 import re
+import subprocess
 from datetime import date
 from html.parser import HTMLParser
 from pathlib import Path
@@ -50,7 +51,7 @@ def test_draft_review_labels_reference_their_controls(admin_client):
         "uncertainties": [],
         "tasks": [{
             "title": "联调", "project_name": "", "assignee_name": "", "description": "接口说明",
-            "planned_start_date": None, "due_date": None, "acceptance_date": None,
+            "planned_start_date": None, "due_date": "日期待确认", "acceptance_date": None,
             "status": "in_progress", "priority": "normal", "progress": 20,
             "current_note": "处理中", "completed_work": "接口已通", "next_step": "联测",
         }],
@@ -70,6 +71,10 @@ def test_draft_review_labels_reference_their_controls(admin_client):
 
     assert None not in parser.label_targets
     assert set(parser.label_targets) <= parser.control_ids
+    html = response.content.decode()
+    assert html.count("data-review-project") == 3
+    assert html.count("data-review-date") == 5
+    assert 'data-date-needs-correction="true"' in html
 
 
 def test_parse_failure_script_updates_badge_and_shows_server_message():
@@ -207,11 +212,12 @@ def test_review_progress_difference_preserves_zero(admin_client):
     assert f'data-recommended-existing="{task.pk}"' in html
 
 
-def test_submit_once_preserves_the_clicked_meeting_intent():
-    script = (PROJECT_ROOT / "static/js/app.js").read_text()
-    handler = script.split("function setupSubmitOnce()", 1)[1].split("function setupReview()", 1)[0]
-    assert "event.submitter" in handler
-    assert "button.name" in handler and "button.value" in handler
+def test_native_javascript_workflow_behaviors():
+    result = subprocess.run(
+        ["node", "--test", "tests/js/app.test.cjs"], cwd=PROJECT_ROOT,
+        text=True, capture_output=True, timeout=30,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 @pytest.mark.django_db

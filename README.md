@@ -90,6 +90,8 @@ uv run python manage.py runserver
 
 测试：
 
+开发测试需要 Node.js 18+（仅用于执行原生 JavaScript 行为测试，不是应用运行依赖）。`pytest` 会自动运行仓库内的 `tests/js/app.test.cjs`；该测试使用 Node 内建工具和确定性 DOM/FormData 适配器，不需要浏览器下载、npm 包或在线资源。也可以单独执行 `node --test tests/js/app.test.cjs`。
+
 ```bash
 uv run pytest -q
 uv run python manage.py makemigrations --check --dry-run
