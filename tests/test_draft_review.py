@@ -72,6 +72,21 @@ def test_unique_exact_candidate_recommends_update_and_exposes_diffs():
 
 
 @pytest.mark.django_db
+def test_title_substring_candidate_needs_attention_instead_of_automatic_update():
+    project = Project.objects.create(name="SKU改造")
+    person = Person.objects.create(name="张川")
+    Task.objects.create(project=project, assignee=person, title="账单重构")
+    draft = make_draft(tasks=[task_payload("账单")])
+
+    review = build_draft_review(draft)
+
+    row = review["task_rows"][0]
+    assert row["recommended_action"] == "ignore"
+    assert row["needs_attention"] is True
+    assert "疑似重复" in row["attention_reasons"]
+
+
+@pytest.mark.django_db
 def test_mapped_task_without_candidate_recommends_create():
     Project.objects.create(name="SKU改造")
     Person.objects.create(name="张川")

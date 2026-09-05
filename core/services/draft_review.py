@@ -67,7 +67,8 @@ def _task_recommendation(item, project, person, candidates, candidate_tasks, mee
         assignee_matches = not item.get("assignee_name") or (
             candidate.assignee and candidate.assignee.name == item["assignee_name"]
         )
-        if candidate.project_id == project.pk and assignee_matches:
+        title_matches = candidate.title.strip() == str(item.get("title", "")).strip()
+        if candidate.project_id == project.pk and assignee_matches and title_matches:
             matching_candidate = candidate
 
     if matching_candidate:
