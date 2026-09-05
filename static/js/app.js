@@ -47,7 +47,7 @@ function setupParseForm() {
     } catch (error) {
       if (statusBadge) {
         statusBadge.className = "status-badge status-failed";
-        statusBadge.innerHTML = '<span class="status-dot" aria-hidden="true"></span>解析失败';
+        statusBadge.textContent = "解析失败";
       }
       progress.classList.add("is-error");
       progressTitle.textContent = "解析未完成";
@@ -60,6 +60,13 @@ function setupParseForm() {
       window.clearInterval(timer);
     }
   });
+  if (document.querySelector("[data-auto-parse]")) {
+    // Consume the URL intent before submitting, so reload/back never repeats it.
+    const url = new URL(window.location.href);
+    url.searchParams.delete("auto_parse");
+    window.history.replaceState(null, "", url);
+    form.requestSubmit();
+  }
 }
 
 function setupTaskActions() {
@@ -81,17 +88,153 @@ function setupTaskActions() {
 
 function setupSubmitOnce() {
   document.querySelectorAll("[data-submit-once]").forEach((form) => {
-    form.addEventListener("submit", () => {
-      const button = form.querySelector("button[type='submit']");
+    form.addEventListener("submit", (event) => {
+      if (form.dataset.submitting === "true") { event.preventDefault(); return; }
+      const button = event.submitter || form.querySelector("button[type='submit']");
       if (!button || button.disabled) return;
-      button.disabled = true;
+      // Disabled submitters are omitted from native form data; preserve their intent.
+      if (button.name) {
+        const intent = document.createElement("input");
+        intent.type = "hidden";
+        intent.name = button.name;
+        intent.value = button.value;
+        form.append(intent);
+      }
+      form.dataset.submitting = "true";
+      form.querySelectorAll("button[type='submit']").forEach((item) => { item.disabled = true; });
       button.textContent = button.dataset.submitLabel || "正在提交";
     });
+  });
+}
+
+function setupReview() {
+  const form = document.querySelector("[data-review-form]");
+  if (!form) return;
+  const rows = Array.from(form.querySelectorAll("[data-review-row]"));
+  const summary = form.querySelector("[data-review-summary]");
+  const submit = form.querySelector("[data-review-submit]");
+  const filters = Array.from(form.querySelectorAll("[data-review-filter]"));
+  const empty = form.querySelector("[data-review-empty]");
+  let filter = "all";
+  const actionOf = (row) => row.querySelector('select[name$="_action"]');
+  const needsAttention = (row) => row.dataset.needsAttention === "true" && row.dataset.reviewed !== "true";
+  const labels = {create: "新建", update: "更新", ignore: "忽略"};
+  const sync = () => {
+    const counts = {create: 0, update: 0, ignore: 0, attention: 0};
+    rows.forEach((row) => {
+      const action = actionOf(row);
+      if (!action) return;
+      counts[action.value] += 1;
+      if (needsAttention(row)) counts.attention += 1;
+      row.hidden = filter === "attention" && !needsAttention(row);
+      const label = row.querySelector("[data-action-label]");
+      if (label) label.textContent = labels[action.value];
+    });
+    summary.textContent = `预计新增 ${counts.create} 项 · 更新 ${counts.update} 项 · 忽略 ${counts.ignore} 项 · 需确认 ${counts.attention} 项`;
+    submit.textContent = `确认并入库（新增 ${counts.create}，更新 ${counts.update}，忽略 ${counts.ignore}）`;
+    filters.forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.reviewFilter === filter)));
+    empty.hidden = filter !== "attention" || counts.attention > 0;
+  };
+  filters.forEach((button) => button.addEventListener("click", () => {
+    filter = button.dataset.reviewFilter;
+    sync();
+  }));
+  // Only an explicit decision resolves an attention flag; editing text alone does not.
+  form.addEventListener("change", (event) => {
+    const row = event.target.closest("[data-review-row]");
+    if (!row) return;
+    if (event.target === actionOf(row)) row.dataset.reviewed = "true";
+    sync();
+  });
+  form.querySelectorAll("[data-batch-action]").forEach((button) => button.addEventListener("click", () => {
+    rows.forEach((row) => {
+      const action = actionOf(row);
+      if (button.dataset.batchAction === "recommended") {
+        const recommendation = row.getAttribute("data-recommended-action");
+        if (!recommendation) return;
+        action.value = recommendation;
+        const existing = row.querySelector("[data-existing-field] select");
+        if (recommendation === "update" && existing) existing.value = row.dataset.recommendedExisting;
+      } else {
+        if (!needsAttention(row)) return;
+        action.value = "ignore";
+      }
+      row.dataset.reviewed = "true";
+      action.dispatchEvent(new Event("change", {bubbles: true}));
+    });
+    sync();
+  }));
+  // Reveal invalid controls even when their details or filter was collapsed.
+  form.addEventListener("invalid", (event) => {
+    const row = event.target.closest("[data-review-row]");
+    if (row) { filter = "all"; row.open = true; sync(); }
+  }, true);
+  sync();
+}
+
+function setupCopy() {
+  const status = document.querySelector("[data-copy-status]");
+  document.querySelectorAll("[data-copy-target]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const target = document.getElementById(button.dataset.copyTarget);
+      if (!target) return;
+      status.textContent = "正在复制…";
+      try {
+        await navigator.clipboard.writeText(target.value ?? target.textContent);
+        status.textContent = "已复制，可以粘贴到钉钉。";
+      } catch (error) {
+        status.textContent = "复制失败，请选中文案后手动复制。";
+      }
+    });
+  });
+}
+
+function setupReportTabs() {
+  const tabs = Array.from(document.querySelectorAll("[data-report-tab]"));
+  const select = (active, focus = false) => tabs.forEach((tab) => {
+    const selected = tab === active;
+    tab.setAttribute("aria-selected", String(selected));
+    tab.tabIndex = selected ? 0 : -1;
+    document.getElementById(tab.getAttribute("aria-controls")).hidden = !selected;
+    if (selected && focus) tab.focus();
+  });
+  tabs.forEach((tab, index) => {
+    tab.addEventListener("click", () => select(tab));
+    tab.addEventListener("keydown", (event) => {
+      let next;
+      if (event.key === "ArrowRight") next = (index + 1) % tabs.length;
+      else if (event.key === "ArrowLeft") next = (index - 1 + tabs.length) % tabs.length;
+      else if (event.key === "Home") next = 0;
+      else if (event.key === "End") next = tabs.length - 1;
+      else return;
+      event.preventDefault();
+      select(tabs[next], true);
+    });
+  });
+  if (tabs.length) select(tabs[0]);
+}
+
+function setupShortcuts() {
+  document.addEventListener("keydown", (event) => {
+    const target = event.target;
+    if (event.defaultPrevented || event.isComposing || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey ||
+        target.isContentEditable || target.closest("input, textarea, select, [role='textbox']")) return;
+    if (event.key === "/") {
+      const search = document.querySelector("[data-search-input]");
+      if (search) { event.preventDefault(); search.focus(); }
+    } else if (event.key === "n") {
+      const link = document.querySelector("[data-shortcut-new-meeting]");
+      if (link) { event.preventDefault(); window.location.assign(link.href); }
+    }
   });
 }
 
 document.addEventListener("DOMContentLoaded", () => {
   setupParseForm();
   setupTaskActions();
+  setupReview();
+  setupCopy();
+  setupReportTabs();
+  setupShortcuts();
   setupSubmitOnce();
 });

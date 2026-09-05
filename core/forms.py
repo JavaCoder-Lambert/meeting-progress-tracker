@@ -19,7 +19,7 @@ class MeetingNoteForm(forms.ModelForm):
         model = MeetingNote
         fields = ["title", "meeting_date", "raw_text"]
         widgets = {
-            "meeting_date": forms.DateInput(attrs={"type": "date"}),
+            "meeting_date": forms.DateInput(format="%Y-%m-%d", attrs={"type": "date"}),
             "raw_text": forms.Textarea(attrs={"rows": 18, "placeholder": "粘贴钉钉群消息或会议记录……", "autofocus": True}),
         }
 
@@ -40,13 +40,13 @@ class TaskForm(forms.ModelForm):
     class Meta:
         model = Task
         fields = ["project", "title", "description", "assignee", "planned_start_date", "due_date", "acceptance_date", "status", "priority", "progress", "current_note"]
-        widgets = {field: forms.DateInput(attrs={"type": "date"}) for field in ("planned_start_date", "due_date", "acceptance_date")}
+        widgets = {field: forms.DateInput(format="%Y-%m-%d", attrs={"type": "date"}) for field in ("planned_start_date", "due_date", "acceptance_date")}
 
 
 class TaskProgressForm(forms.Form):
     status = forms.ChoiceField(label="状态", choices=Task.Status.choices, required=False)
     progress = forms.IntegerField(label="进度", min_value=0, max_value=100, required=False)
-    due_date = forms.DateField(label="截止日期", required=False, widget=forms.DateInput(attrs={"type": "date"}))
+    due_date = forms.DateField(label="截止日期", required=False, widget=forms.DateInput(format="%Y-%m-%d", attrs={"type": "date"}))
     current_note = forms.CharField(label="当前说明", required=False, widget=forms.Textarea(attrs={"rows": 2}))
     completed_work = forms.CharField(label="本次完成", required=False, widget=forms.Textarea(attrs={"rows": 2}))
     next_step = forms.CharField(label="下一步", required=False, widget=forms.Textarea(attrs={"rows": 2}))

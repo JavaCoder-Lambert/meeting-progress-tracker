@@ -10,6 +10,7 @@
   <script src="{% static 'js/app.js' %}" defer></script>
 </head>
 <body>
+  <a class="skip-link" href="#main-content">跳到主要内容</a>
   {% if user.is_authenticated %}
     {% with current=request.resolver_match.url_name %}
       <header class="topbar">
@@ -21,7 +22,7 @@
           <nav aria-label="主导航">
             <a {% if current == 'meeting_list' or current == 'meeting_create' or current == 'meeting_detail' or current == 'draft_review' %}class="active" aria-current="page"{% endif %} href="{% url 'meeting_list' %}">会议</a>
             <a {% if current == 'project_list' or current == 'project_detail' or current == 'project_create' or current == 'project_edit' %}class="active" aria-current="page"{% endif %} href="{% url 'project_list' %}">项目</a>
-            <a {% if current == 'task_list' or current == 'task_board' or current == 'task_create' or current == 'task_edit' %}class="active" aria-current="page"{% endif %} href="{% url 'task_list' %}">任务</a>
+            <a {% if current == 'task_list' or current == 'task_board' or current == 'task_create' or current == 'task_edit' or current == 'task_detail' or current == 'task_progress_update' %}class="active" aria-current="page"{% endif %} href="{% url 'task_list' %}">任务</a>
             <a {% if current == 'person_list' or current == 'person_detail' or current == 'person_create' or current == 'person_edit' %}class="active" aria-current="page"{% endif %} href="{% url 'person_list' %}">人员</a>
             <a {% if current == 'report' %}class="active" aria-current="page"{% endif %} href="{% url 'report' %}">周报</a>
             <a {% if current == 'settings' %}class="active" aria-current="page"{% endif %} href="{% url 'settings' %}">设置</a>
@@ -35,7 +36,7 @@
     {% endwith %}
   {% endif %}
 
-  <main>
+  <main id="main-content" tabindex="-1">
     {% if messages %}
       <div class="toast-stack" aria-live="polite">
         {% for message in messages %}<div class="toast {{ message.tags }}">{{ message }}</div>{% endfor %}
@@ -43,5 +44,12 @@
     {% endif %}
     {% block content %}{% endblock %}
   </main>
+  {% if user.is_authenticated %}
+    <footer class="shortcut-hints" aria-label="键盘快捷键">
+      <span><kbd>/</kbd> 聚焦任务搜索</span>
+      <a href="{% url 'meeting_create' %}" data-shortcut-new-meeting aria-keyshortcuts="n"><kbd>n</kbd> 新建会议</a>
+    </footer>
+  {% endif %}
+  <div class="copy-status" role="status" aria-live="polite" aria-atomic="true" data-copy-status></div>
 </body>
 </html>

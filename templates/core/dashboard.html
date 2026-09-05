@@ -8,7 +8,7 @@
 
   <section aria-labelledby="action-summary-title">
     <div class="section-head"><h2 id="action-summary-title">行动摘要</h2><a href="{% url 'meeting_list' %}">查看会议收件箱</a></div>
-    <div class="metrics action-counts">
+    <div class="summary-strip action-counts">
       <a href="{% url 'meeting_list' %}?state=pending"><strong>{{ action_counts.pending_drafts }}</strong><span>待确认</span></a>
       <a href="{% url 'task_list' %}?queue=overdue"><strong>{{ action_counts.overdue_tasks }}</strong><span>逾期</span></a>
       <a href="{% url 'task_list' %}?queue=due_soon"><strong>{{ action_counts.due_soon_tasks }}</strong><span>7 天内到期</span></a>
@@ -21,14 +21,14 @@
     <section aria-labelledby="draft-queue-title">
       <h2 id="draft-queue-title">待确认草稿</h2>
       {% for draft in pending_drafts %}
-        <a class="card list-row" href="{% url 'draft_review' draft.pk %}"><div><strong>{{ draft.meeting_note.title }}</strong><span>{{ draft.meeting_note.meeting_date }} · 继续检查并确认入库</span></div><b aria-hidden="true">→</b></a>
-      {% empty %}<div class="empty">没有待确认草稿。录入会议后，解析结果会先在这里等待确认。</div>{% endfor %}
+        <a class="data-row list-row" href="{% url 'draft_review' draft.pk %}"><div><strong>{{ draft.meeting_note.title }}</strong><span><time datetime="{{ draft.meeting_note.meeting_date|date:"Y-m-d" }}">{{ draft.meeting_note.meeting_date }}</time> · 继续检查并确认入库</span></div><b aria-hidden="true">→</b></a>
+      {% empty %}<div class="empty-state">没有待确认草稿。录入会议后，解析结果会先在这里等待确认。</div>{% endfor %}
     </section>
     <section aria-labelledby="overdue-queue-title">
       <div class="section-head"><h2 id="overdue-queue-title">优先处理：逾期</h2><a href="{% url 'task_list' %}?queue=overdue">查看全部</a></div>
       {% for task in overdue_tasks %}
-        <a class="card list-row" href="{% url 'task_detail' task.pk %}"><div><strong>{{ task.title }}</strong><span>{{ task.project.name }}{% if task.assignee %} · {{ task.assignee.name }}{% endif %}</span></div><time class="danger">{{ task.due_date }}</time></a>
-      {% empty %}<div class="empty">没有逾期任务。</div>{% endfor %}
+        <a class="data-row list-row" href="{% url 'task_detail' task.pk %}"><div><strong>{{ task.title }}</strong><span>{{ task.project.name }}{% if task.assignee %} · {{ task.assignee.name }}{% endif %}</span></div><time class="danger" datetime="{{ task.due_date|date:"Y-m-d" }}">{{ task.due_date }}</time></a>
+      {% empty %}<div class="empty-state">没有逾期任务。</div>{% endfor %}
     </section>
   </div>
 
@@ -36,32 +36,32 @@
     <section aria-labelledby="due-soon-title">
       <div class="section-head"><h2 id="due-soon-title">接下来 7 天到期</h2><a href="{% url 'task_list' %}?queue=due_soon">查看全部</a></div>
       {% for task in due_soon_tasks %}
-        <a class="card list-row" href="{% url 'task_detail' task.pk %}"><div><strong>{{ task.title }}</strong><span>{{ task.project.name }}{% if task.assignee %} · {{ task.assignee.name }}{% endif %}</span></div><time>{{ task.due_date }}</time></a>
-      {% empty %}<div class="empty">未来 7 天没有到期任务。</div>{% endfor %}
+        <a class="data-row list-row" href="{% url 'task_detail' task.pk %}"><div><strong>{{ task.title }}</strong><span>{{ task.project.name }}{% if task.assignee %} · {{ task.assignee.name }}{% endif %}</span></div><time datetime="{{ task.due_date|date:"Y-m-d" }}">{{ task.due_date }}</time></a>
+      {% empty %}<div class="empty-state">未来 7 天没有到期任务。</div>{% endfor %}
     </section>
     <section aria-labelledby="stale-title">
       <div class="section-head"><h2 id="stale-title">长期未更新</h2><a href="{% url 'task_list' %}?queue=stale">查看全部</a></div>
       {% for task in stale_tasks %}
-        <a class="card list-row" href="{% url 'task_detail' task.pk %}"><div><strong>{{ task.title }}</strong><span>{{ task.project.name }}{% if task.assignee %} · {{ task.assignee.name }}{% endif %}</span></div><time>{{ task.updated_at|date:"Y-m-d" }}</time></a>
-      {% empty %}<div class="empty">没有长期未更新的任务。</div>{% endfor %}
+        <a class="data-row list-row" href="{% url 'task_detail' task.pk %}"><div><strong>{{ task.title }}</strong><span>{{ task.project.name }}{% if task.assignee %} · {{ task.assignee.name }}{% endif %}</span></div><time datetime="{{ task.updated_at|date:"c" }}">{{ task.updated_at|date:"Y-m-d" }}</time></a>
+      {% empty %}<div class="empty-state">没有长期未更新的任务。</div>{% endfor %}
     </section>
   </div>
 
   <section aria-labelledby="follow-up-title">
     <h2 id="follow-up-title">按负责人跟进</h2>
     {% for group in follow_up_groups %}
-      <article class="card"><strong>{{ group.person.name }}</strong><pre class="follow-up-text">{{ group.text }}</pre></article>
-    {% empty %}<div class="empty">当前没有需要按负责人催办的任务。</div>{% endfor %}
+      <article class="surface"><div class="section-head"><strong>{{ group.person.name }}</strong><button class="button" type="button" data-copy-target="follow-up-{{ forloop.counter }}">复制跟进文案</button></div><pre class="follow-up-text" id="follow-up-{{ forloop.counter }}">{{ group.text }}</pre></article>
+    {% empty %}<div class="empty-state">当前没有需要按负责人催办的任务。</div>{% endfor %}
   </section>
 
   <div class="grid two">
     <section id="open-risks" aria-labelledby="risk-title">
       <h2 id="risk-title">未解决风险</h2>
-      {% for risk in open_risks %}<div class="card list-row"><div><strong>{{ risk.get_risk_type_display }}</strong><span>{{ risk.project.name }} · {{ risk.content }}{% if risk.owner %} · {{ risk.owner.name }}{% endif %}</span></div></div>{% empty %}<div class="empty">当前没有风险记录。</div>{% endfor %}
+      {% for risk in open_risks %}<div class="data-row list-row"><div><strong>{{ risk.get_risk_type_display }}</strong><span>{{ risk.project.name }} · {{ risk.content }}{% if risk.owner %} · {{ risk.owner.name }}{% endif %}</span></div></div>{% empty %}<div class="empty-state">当前没有风险记录。</div>{% endfor %}
     </section>
     <section aria-labelledby="meeting-title">
       <div class="section-head"><h2 id="meeting-title">最近会议</h2><a href="{% url 'meeting_list' %}">全部会议</a></div>
-      {% for note in meetings %}<a class="card list-row" href="{% url 'meeting_detail' note.pk %}"><div><strong>{{ note.title }}</strong><span>{{ note.get_parse_status_display }}</span></div><time>{{ note.meeting_date }}</time></a>{% empty %}<div class="empty">尚未录入会议。</div>{% endfor %}
+      {% for note in meetings %}<a class="data-row list-row" href="{% url 'meeting_detail' note.pk %}"><div><strong>{{ note.title }}</strong><span>{{ note.get_parse_status_display }}</span></div><time datetime="{{ note.meeting_date|date:"Y-m-d" }}">{{ note.meeting_date }}</time></a>{% empty %}<div class="empty-state">尚未录入会议。</div>{% endfor %}
     </section>
   </div>
 </div>

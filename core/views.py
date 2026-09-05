@@ -161,6 +161,10 @@ def draft_confirm(request, pk):
 def task_list(request):
     tasks = Task.objects.select_related("project", "assignee")
     filters = {}
+    query = request.GET.get("q", "").strip()
+    filters["q"] = query
+    if query:
+        tasks = tasks.filter(title__icontains=query)
     for field in ("project", "assignee", "status", "priority"):
         value = request.GET.get(field, "")
         filters[field] = value

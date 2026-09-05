@@ -1,1 +1,27 @@
-{% extends "base.html" %}{% block title %}周报{% endblock %}{% block content %}<div class="page"><div class="page-head"><div><span class="eyebrow">自动归集</span><h1>项目周报</h1></div></div>{% if error %}<div class="alert error">{{ error }}</div>{% endif %}<form class="filters"><label>开始<input type="date" name="start" value="{{ start }}"></label><label>结束<input type="date" name="end" value="{{ end }}"></label><button class="button">重新生成</button></form><section class="card"><div class="section-head"><h2>Markdown</h2><button class="button" type="button" onclick="navigator.clipboard.writeText(document.getElementById('report').value);this.textContent='已复制'">复制</button></div><textarea id="report" rows="28">{{ markdown }}</textarea></section></div>{% endblock %}
+{% extends "base.html" %}
+{% block title %}周报{% endblock %}
+{% block content %}
+<div class="page">
+  <div class="page-head"><div><span class="eyebrow">自动归集</span><h1>项目周报</h1><p class="muted">检查本周进展，复制 Markdown 后可直接分享。</p></div></div>
+  {% if error %}<div class="alert error" role="alert">{{ error }}</div>{% endif %}
+  <form class="filters" aria-label="周报日期范围">
+    <label for="report-start">开始日期<input id="report-start" type="date" name="start" value="{{ start }}"></label>
+    <label for="report-end">结束日期<input id="report-end" type="date" name="end" value="{{ end }}"></label>
+    <button class="button" type="submit">重新生成</button>
+  </form>
+  <section class="surface" aria-label="周报内容">
+    <div class="section-head">
+      <div class="report-tabs" role="tablist" aria-label="周报展示方式">
+        <button class="filter-chip" id="preview-tab" role="tab" type="button" aria-controls="report-preview" aria-selected="true" data-report-tab>预览</button>
+        <button class="filter-chip" id="markdown-tab" role="tab" type="button" aria-controls="report-markdown" aria-selected="false" tabindex="-1" data-report-tab>Markdown</button>
+      </div>
+      <button class="button" type="button" data-copy-target="report">复制周报</button>
+    </div>
+    <div id="report-preview" role="tabpanel" aria-labelledby="preview-tab" tabindex="0"><pre class="report-preview">{{ markdown }}</pre></div>
+    <div id="report-markdown" role="tabpanel" aria-labelledby="markdown-tab" tabindex="0">
+      <label class="sr-only" for="report">周报 Markdown 原文</label>
+      <textarea class="report-markdown" id="report" rows="24" readonly>{{ markdown }}</textarea>
+    </div>
+  </section>
+</div>
+{% endblock %}

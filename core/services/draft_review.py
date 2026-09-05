@@ -44,7 +44,9 @@ def _task_diffs(task, item, meeting_date):
         ("current_note", "当前说明", task.current_note, item.get("current_note", "")),
     )
     return [
-        {"field": field, "label": label, "existing": existing or "", "incoming": incoming or ""}
+        {"field": field, "label": label,
+         "existing": existing if existing not in (None, "") else "未填写",
+         "incoming": incoming if incoming not in (None, "") else "未填写"}
         for field, label, existing, incoming in comparisons
         if existing != incoming
     ]
@@ -108,6 +110,7 @@ def build_draft_review(draft, decisions=None) -> dict:
             "item": item,
             "candidates": candidates,
             "recommended_action": recommended_action,
+            "recommended_existing_id": str(existing_task.pk) if existing_task else "",
             "action": action,
             "existing_id": existing_id,
             "attention_reasons": reasons,

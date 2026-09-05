@@ -8,8 +8,8 @@
   </div>
   <section aria-label="会议列表">
     {% for note in meeting_list %}
-      <article class="card list-row">
-        <div><strong>{{ note.title }}</strong><span>{{ note.meeting_date }} · {{ note.get_parse_status_display }}</span></div>
+      <article class="data-row list-row">
+        <div><strong>{{ note.title }}</strong><span><time datetime="{{ note.meeting_date|date:"Y-m-d" }}">{{ note.meeting_date }}</time> · {{ note.get_parse_status_display }}</span></div>
         <div class="row-actions">
           {% if note.parse_status == 'success' and note.latest_draft and not note.latest_draft.confirmed_at %}
             <a class="button" href="{% url 'draft_review' note.latest_draft.pk %}">继续确认</a>
@@ -25,7 +25,7 @@
         </div>
       </article>
     {% empty %}
-      <div class="empty">还没有会议记录。粘贴一段钉钉消息或会议速记即可开始。</div>
+      <div class="empty-state">还没有会议记录。粘贴一段钉钉消息或会议速记即可开始。</div>
     {% endfor %}
   </section>
 </div>

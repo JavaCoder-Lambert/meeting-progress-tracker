@@ -5,7 +5,7 @@
     <div class="page-head meeting-head">
       <div>
         <a class="back-link" href="{% url 'meeting_create' %}">返回快速记录</a>
-        <span class="eyebrow">{{ note.meeting_date|date:"Y年n月j日" }}</span>
+        <span class="eyebrow"><time datetime="{{ note.meeting_date|date:"Y-m-d" }}">{{ note.meeting_date|date:"Y年n月j日" }}</time></span>
         <h1>{{ note.title }}</h1>
       </div>
       <span class="status-badge status-{{ note.parse_status }}" data-note-status>
