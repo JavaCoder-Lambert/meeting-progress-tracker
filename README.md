@@ -38,10 +38,10 @@ python3 -c 'import secrets; print(secrets.token_urlsafe(64))'
 ```bash
 docker compose up -d --build
 docker compose ps
-curl -fsS -H 'X-Forwarded-Proto: https' http://127.0.0.1:"${APP_PORT:-8000}"/health/
+docker compose port app 8000
 ```
 
-首次启动创建管理员。以后修改 `.env` 中的 `ADMIN_PASSWORD` 不会覆盖数据库中的密码，请在“设置”页面修改。
+`docker compose port app 8000` 会显示实际发布的地址（例如 `127.0.0.1:18080`）。将这段输出用于健康检查：`curl -fsS -H 'X-Forwarded-Proto: https' http://127.0.0.1:18080/health/`。首次启动创建管理员。以后修改 `.env` 中的 `ADMIN_PASSWORD` 不会覆盖数据库中的密码，请在“设置”页面修改。
 
 `docker compose up -d --build` 会重建镜像，但已运行容器不会因为仅修改了 `.env` 自动获得新环境变量。修改端口、绑定地址、安全开关、LLM 或超时配置后，请显式重建容器（不删除数据卷）：
 
@@ -49,11 +49,11 @@ curl -fsS -H 'X-Forwarded-Proto: https' http://127.0.0.1:"${APP_PORT:-8000}"/hea
 docker compose up -d --force-recreate
 ```
 
-解析是同步的真实模型请求，复杂会议通常需要 20–90 秒，也可能一直等待到 `LLM_TIMEOUT_SECONDS`；等待反馈和失败后的重试入口不会让模型生成变快。该值是单次解析的端到端墙钟上限，首次请求和最多一次格式修复共享这份预算，默认 60 秒。`GUNICORN_TIMEOUT` 只是进程级保护，不是模型请求的 deadline；Gunicorn 和反向代理读取超时都必须高于 `LLM_TIMEOUT_SECONDS`。若更看重响应速度，可在 `.env` 中选择同一服务商提供的轻量模型。
+解析是同步的真实模型请求，供应商生成复杂会议可能需要 20–90 秒；但默认 `LLM_TIMEOUT_SECONDS=60`，约 60 秒仍未完成的请求会被应用中止。等待反馈和失败后的重试入口不会让模型生成变快。该值是首次请求和最多一次格式修复共享的端到端墙钟上限；若提高它，必须同时把 `GUNICORN_TIMEOUT` 和反向代理读取超时提高到更大的值。`GUNICORN_TIMEOUT` 只是进程级保护，不是模型请求的 deadline。若更看重响应速度，可在 `.env` 中选择同一服务商提供的轻量模型。
 
 ### 域名与 HTTPS
 
-应用监听服务器的 `APP_PORT`。使用已有 Nginx 或 Caddy 反向代理到 `http://127.0.0.1:8000`，并传递 `Host`、`X-Forwarded-For` 和 `X-Forwarded-Proto`。绑定域名的生产环境必须使用 HTTPS，并将完整 HTTPS 地址写入 `CSRF_TRUSTED_ORIGINS`。若使用 Nginx，请为解析接口设置高于 `LLM_TIMEOUT_SECONDS` 的读取超时，例如 `proxy_read_timeout 300s;`，避免代理层先于应用 deadline 断开。
+应用监听服务器的 `.env` 中 `APP_PORT`；反向代理应转发到同一个本机端口，例如 `APP_PORT=18080` 时使用 `http://127.0.0.1:18080`，并传递 `Host`、`X-Forwarded-For` 和 `X-Forwarded-Proto`。绑定域名的生产环境必须使用 HTTPS，并将完整 HTTPS 地址写入 `CSRF_TRUSTED_ORIGINS`。若使用 Nginx，请为解析接口设置高于 `LLM_TIMEOUT_SECONDS` 的读取超时，例如 `proxy_read_timeout 300s;`，避免代理层先于应用 deadline 断开。
 
 只在本机通过 HTTP 直接验收容器时，可临时设置 `DJANGO_SECURE_SSL_REDIRECT=false`；绑定域名后应恢复为 `true`。注意：非 Debug 的会话与 CSRF Cookie 仍标记为 Secure，因此普通 HTTP 下登录并不可靠；健康检查可带 `X-Forwarded-Proto: https`，完整登录验收请使用 HTTPS，或使用独立临时数据库并以 `DJANGO_DEBUG=true` 运行本地服务。
 

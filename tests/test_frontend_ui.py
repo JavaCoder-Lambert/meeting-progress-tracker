@@ -5,6 +5,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 
 import pytest
+from django.contrib.staticfiles import finders
 
 from core.models import ImportDraft, MeetingNote, Project, Task
 
@@ -164,6 +165,7 @@ def test_copy_review_and_report_offer_accessible_progressive_interactions():
     script = (PROJECT_ROOT / "static/js/app.js").read_text()
     assert 'data-copy-status' in base and 'aria-live="polite"' in base
     assert "favicon.svg" in base
+    assert finders.find("favicon.svg")
     for template in (report, dashboard):
         assert 'data-copy-target=' in template
         assert 'onclick=' not in template
