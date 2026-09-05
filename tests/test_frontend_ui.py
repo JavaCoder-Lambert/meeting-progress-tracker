@@ -163,6 +163,7 @@ def test_copy_review_and_report_offer_accessible_progressive_interactions():
     dashboard = (PROJECT_ROOT / "templates/core/dashboard.html").read_text()
     script = (PROJECT_ROOT / "static/js/app.js").read_text()
     assert 'data-copy-status' in base and 'aria-live="polite"' in base
+    assert "favicon.svg" in base
     for template in (report, dashboard):
         assert 'data-copy-target=' in template
         assert 'onclick=' not in template

@@ -5,10 +5,13 @@
 ## 功能
 
 - 单管理员登录
-- 保存会议原文，调用 OpenAI 兼容接口解析
-- AI 草稿逐条确认，疑似重复任务提示
-- 项目、人员、任务、看板和进展历史
-- 周报 Markdown 生成
+- 会议收件箱：按未解析、解析失败、待确认、已入库展示下一步，可从失败处重试
+- 新会议默认“保存并开始解析”，也可仅保存原文后再解析
+- AI 草稿异常优先：项目缺失、日期异常、人员未匹配、疑似重复默认展开；支持只看异常、批量接受推荐或批量忽略异常项
+- 任务详情中的一次进展更新会记录本次完成、下一步、风险、状态、进度和截止日期，并同步到时间线与周报
+- 首页行动台聚合待确认、逾期、本周到期、长期未更新和未解决风险，并按负责人生成可复制的钉钉跟进文案
+- 周报提供预览与 Markdown 标签页，支持一键复制
+- `/` 聚焦任务搜索，`n` 新建会议；在输入框、可编辑区域或使用组合/修饰键时不会劫持按键
 - JSON 与 CSV ZIP 导出
 - SQLite 持久化和 Docker Compose 部署
 
@@ -35,17 +38,24 @@ python3 -c 'import secrets; print(secrets.token_urlsafe(64))'
 ```bash
 docker compose up -d --build
 docker compose ps
+curl -fsS -H 'X-Forwarded-Proto: https' http://127.0.0.1:"${APP_PORT:-8000}"/health/
 ```
 
 首次启动创建管理员。以后修改 `.env` 中的 `ADMIN_PASSWORD` 不会覆盖数据库中的密码，请在“设置”页面修改。
 
-较复杂的会议记录会产生较长的模型输出，通常需要几十秒。页面会持续显示等待时间；`LLM_TIMEOUT_SECONDS` 是单次解析的端到端墙钟上限，首次请求和最多一次格式修复共享这份预算，默认 60 秒。`GUNICORN_TIMEOUT` 只是进程级保护，不是模型请求的 deadline；应把 Gunicorn 和反向代理的超时配置得略高于 `LLM_TIMEOUT_SECONDS`。若更看重响应速度，可在 `.env` 中选择同一服务商提供的轻量模型。
+`docker compose up -d --build` 会重建镜像，但已运行容器不会因为仅修改了 `.env` 自动获得新环境变量。修改端口、绑定地址、安全开关、LLM 或超时配置后，请显式重建容器（不删除数据卷）：
+
+```bash
+docker compose up -d --force-recreate
+```
+
+解析是同步的真实模型请求，复杂会议通常需要 20–90 秒，也可能一直等待到 `LLM_TIMEOUT_SECONDS`；等待反馈和失败后的重试入口不会让模型生成变快。该值是单次解析的端到端墙钟上限，首次请求和最多一次格式修复共享这份预算，默认 60 秒。`GUNICORN_TIMEOUT` 只是进程级保护，不是模型请求的 deadline；Gunicorn 和反向代理读取超时都必须高于 `LLM_TIMEOUT_SECONDS`。若更看重响应速度，可在 `.env` 中选择同一服务商提供的轻量模型。
 
 ### 域名与 HTTPS
 
-应用监听服务器的 `APP_PORT`。使用已有 Nginx 或 Caddy 反向代理到 `http://127.0.0.1:8000`，并传递 `Host`、`X-Forwarded-For` 和 `X-Forwarded-Proto`。生产环境必须启用 HTTPS，并将完整 HTTPS 地址写入 `CSRF_TRUSTED_ORIGINS`。若使用 Nginx，请为解析接口设置高于 `LLM_TIMEOUT_SECONDS` 的读取超时，例如 `proxy_read_timeout 300s;`，避免代理层先于应用 deadline 断开。
+应用监听服务器的 `APP_PORT`。使用已有 Nginx 或 Caddy 反向代理到 `http://127.0.0.1:8000`，并传递 `Host`、`X-Forwarded-For` 和 `X-Forwarded-Proto`。绑定域名的生产环境必须使用 HTTPS，并将完整 HTTPS 地址写入 `CSRF_TRUSTED_ORIGINS`。若使用 Nginx，请为解析接口设置高于 `LLM_TIMEOUT_SECONDS` 的读取超时，例如 `proxy_read_timeout 300s;`，避免代理层先于应用 deadline 断开。
 
-只在本机通过 HTTP 直接验收容器时，可临时设置 `DJANGO_SECURE_SSL_REDIRECT=false`；绑定域名后应恢复为 `true`。
+只在本机通过 HTTP 直接验收容器时，可临时设置 `DJANGO_SECURE_SSL_REDIRECT=false`；绑定域名后应恢复为 `true`。注意：非 Debug 的会话与 CSRF Cookie 仍标记为 Secure，因此普通 HTTP 下登录并不可靠；健康检查可带 `X-Forwarded-Proto: https`，完整登录验收请使用 HTTPS，或使用独立临时数据库并以 `DJANGO_DEBUG=true` 运行本地服务。
 
 ### 升级
 
@@ -94,8 +104,14 @@ uv run python manage.py runserver
 
 ```bash
 uv run pytest -q
+node --test tests/js/app.test.cjs
+node --check static/js/app.js
+uv run python manage.py check
 uv run python manage.py makemigrations --check --dry-run
+git diff --check
 ```
+
+本地浏览器验收可在独立临时数据库启动 Debug 服务，避免写入 `data/app.sqlite3`；不要向真实 LLM 服务提交测试会议。`auto_parse` 可通过拦截或模拟验证，仓库内的 Node 行为测试覆盖其一次性触发与表单 intent 保留。
 
 ## 数据位置
 
