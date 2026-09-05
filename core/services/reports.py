@@ -15,13 +15,14 @@ def build_weekly_report(start: date, end: date) -> WeeklyReport:
     start_dt = timezone.make_aware(datetime.combine(start, time.min))
     end_dt = timezone.make_aware(datetime.combine(end, time.max))
     updates = ProgressUpdate.objects.filter(recorded_at__range=(start_dt, end_dt)).select_related("task__project", "task")
+    status_labels = dict(Task.Status.choices)
     projects = {}
     for update in updates:
         row = projects.setdefault(update.task.project.name, {"done": [], "progress": [], "next": []})
         if update.completed_work:
             row["done"].append(f"{update.task.title}：{update.completed_work}")
         if update.new_status and update.new_status != Task.Status.DONE:
-            row["progress"].append(f"{update.task.title}（{update.task.get_status_display()}）")
+            row["progress"].append(f"{update.task.title}（{status_labels.get(update.new_status, update.new_status)}）")
         if update.next_step:
             row["next"].append(f"{update.task.title}：{update.next_step}")
     risks = Risk.objects.filter(created_at__date__range=(start, end)).select_related("project")

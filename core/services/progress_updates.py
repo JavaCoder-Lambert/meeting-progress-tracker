@@ -6,6 +6,14 @@ from django.utils import timezone
 from core.models import ProgressUpdate, Task
 
 
+def sync_task_completion_timestamp(task: Task, previous_status: str) -> None:
+    """Keep a task's completion timestamp aligned with its status transition."""
+    if previous_status != Task.Status.DONE and task.status == Task.Status.DONE:
+        task.completed_at = timezone.now()
+    elif previous_status == Task.Status.DONE and task.status != Task.Status.DONE:
+        task.completed_at = None
+
+
 @transaction.atomic
 def record_task_progress(task: Task, cleaned_data: Mapping) -> ProgressUpdate:
     """Apply one task-progress entry and retain its before/after snapshot."""
@@ -22,10 +30,7 @@ def record_task_progress(task: Task, cleaned_data: Mapping) -> ProgressUpdate:
     if "current_note" in cleaned_data:
         task.current_note = cleaned_data["current_note"]
 
-    if previous_status != Task.Status.DONE and task.status == Task.Status.DONE:
-        task.completed_at = timezone.now()
-    elif previous_status == Task.Status.DONE and task.status != Task.Status.DONE:
-        task.completed_at = None
+    sync_task_completion_timestamp(task, previous_status)
 
     task.full_clean()
     task.save()

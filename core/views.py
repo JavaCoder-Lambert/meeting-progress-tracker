@@ -3,6 +3,7 @@ from datetime import date, timedelta
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.db import transaction
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -16,7 +17,7 @@ from .services.exports import build_csv_zip, build_json_export
 from .services.llm_client import LLMParseError, parse_meeting_note
 from .services.reports import build_weekly_report
 from .services.draft_review import build_draft_review
-from .services.progress_updates import record_task_progress
+from .services.progress_updates import record_task_progress, sync_task_completion_timestamp
 
 
 def health(request):
@@ -195,9 +196,13 @@ def task_edit(request, pk=None):
     old_progress, old_status = (task.progress, task.status) if task else (None, "")
     form = TaskForm(request.POST or None, instance=task)
     if request.method == "POST" and form.is_valid():
-        task = form.save()
-        if old_progress != task.progress or old_status != task.status:
-            task.progress_updates.create(previous_progress=old_progress, new_progress=task.progress, previous_status=old_status, new_status=task.status)
+        with transaction.atomic():
+            task = form.save(commit=False)
+            sync_task_completion_timestamp(task, old_status)
+            task.save()
+            form.save_m2m()
+            if old_progress != task.progress or old_status != task.status:
+                task.progress_updates.create(previous_progress=old_progress, new_progress=task.progress, previous_status=old_status, new_status=task.status)
         return redirect("task_list")
     return render(request, "core/form_page.html", {"form": form, "title": "编辑任务" if task else "新建任务"})
 

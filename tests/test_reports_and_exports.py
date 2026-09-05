@@ -20,6 +20,24 @@ def test_weekly_report_uses_updates_in_selected_range():
 
 
 @pytest.mark.django_db
+def test_weekly_report_uses_update_status_snapshot_when_task_status_changes_later():
+    project = Project.objects.create(name="金蝶")
+    task = Task.objects.create(project=project, title="接口", status=Task.Status.IN_PROGRESS)
+    ProgressUpdate.objects.create(
+        task=task,
+        new_status=Task.Status.IN_PROGRESS,
+        recorded_at=datetime(2026, 9, 3, 10, tzinfo=ZoneInfo("Asia/Shanghai")),
+    )
+    task.status = Task.Status.DONE
+    task.save()
+
+    report = build_weekly_report(date(2026, 8, 31), date(2026, 9, 6))
+
+    assert "接口（进行中）" in report.markdown
+    assert "接口（已完成）" not in report.markdown
+
+
+@pytest.mark.django_db
 def test_progress_update_service_entry_is_in_current_weekly_report():
     project = Project.objects.create(name="仓配升级")
     task = Task.objects.create(project=project, title="完成联调", status=Task.Status.IN_PROGRESS)

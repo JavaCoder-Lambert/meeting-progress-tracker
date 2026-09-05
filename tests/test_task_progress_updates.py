@@ -6,6 +6,24 @@ from core.models import MeetingNote, ProgressUpdate, Project, Risk, Task
 from core.services.progress_updates import record_task_progress
 
 
+def task_edit_payload(task, **changes):
+    payload = {
+        "project": str(task.project_id),
+        "title": task.title,
+        "description": task.description,
+        "assignee": task.assignee_id or "",
+        "planned_start_date": task.planned_start_date or "",
+        "due_date": task.due_date or "",
+        "acceptance_date": task.acceptance_date or "",
+        "status": task.status,
+        "priority": task.priority,
+        "progress": str(task.progress),
+        "current_note": task.current_note,
+    }
+    payload.update(changes)
+    return payload
+
+
 @pytest.mark.django_db
 def test_text_only_progress_update_creates_history_without_changing_task_values():
     project = Project.objects.create(name="仓配升级")
@@ -90,6 +108,35 @@ def test_done_and_reopened_progress_updates_set_and_clear_completed_at():
     assert reopened_update.previous_status == Task.Status.DONE
     assert reopened_update.new_status == Task.Status.IN_PROGRESS
     assert task.completed_at is None
+
+
+@pytest.mark.django_db
+def test_full_task_edit_maintains_completion_timestamp_and_progress_history(admin_client):
+    project = Project.objects.create(name="仓配升级")
+    task = Task.objects.create(project=project, title="完成联调", status=Task.Status.IN_PROGRESS, progress=40)
+
+    done_response = admin_client.post(
+        reverse("task_edit", args=[task.pk]),
+        task_edit_payload(task, status=Task.Status.DONE, progress="100"),
+    )
+    task.refresh_from_db()
+    completed_at = task.completed_at
+
+    reopened_response = admin_client.post(
+        reverse("task_edit", args=[task.pk]),
+        task_edit_payload(task, status=Task.Status.IN_PROGRESS, progress="80"),
+    )
+    task.refresh_from_db()
+    updates = list(task.progress_updates.order_by("recorded_at", "pk"))
+
+    assert done_response.status_code == 302
+    assert completed_at is not None
+    assert reopened_response.status_code == 302
+    assert task.completed_at is None
+    assert [(update.previous_status, update.new_status) for update in updates] == [
+        (Task.Status.IN_PROGRESS, Task.Status.DONE),
+        (Task.Status.DONE, Task.Status.IN_PROGRESS),
+    ]
 
 
 @pytest.mark.django_db
