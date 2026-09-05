@@ -58,7 +58,9 @@ def dashboard_context():
         .values("pk")[:1]
     )
     pending_drafts = ImportDraft.objects.filter(
-        pk=Subquery(latest_draft_id), confirmed_at__isnull=True,
+        pk=Subquery(latest_draft_id),
+        confirmed_at__isnull=True,
+        meeting_note__parse_status=MeetingNote.ParseStatus.SUCCESS,
     ).select_related("meeting_note").order_by("-meeting_note__meeting_date", "-created_at", "-pk")
     open_risks = Risk.objects.exclude(
         status__in=[Risk.Status.RESOLVED, Risk.Status.CLOSED]

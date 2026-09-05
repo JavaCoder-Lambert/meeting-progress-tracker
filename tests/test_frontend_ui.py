@@ -99,3 +99,14 @@ def test_muted_text_colors_meet_wcag_aa_contrast():
 
     assert _contrast_ratio(muted, _css_color(css, "--paper")) >= 4.5
     assert _contrast_ratio(muted, _css_color(css, "--white")) >= 4.5
+
+
+def test_action_summary_and_follow_up_text_have_narrow_screen_safe_styles():
+    css = (PROJECT_ROOT / "static/css/app.css").read_text()
+    dashboard = (PROJECT_ROOT / "templates/core/dashboard.html").read_text()
+
+    assert re.search(r"\.action-counts\s*\{[^}]*grid-template-columns\s*:\s*repeat\(5,\s*1fr\)", css, re.DOTALL)
+    assert re.search(r"\.action-counts\s+a\s*\{[^}]*display\s*:\s*block", css, re.DOTALL)
+    assert re.search(r"\.follow-up-text\s*\{[^}]*white-space\s*:\s*pre-wrap", css, re.DOTALL)
+    assert re.search(r"\.follow-up-text\s*\{[^}]*overflow-wrap\s*:\s*anywhere", css, re.DOTALL)
+    assert 'class="follow-up-text"' in dashboard

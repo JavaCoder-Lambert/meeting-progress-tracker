@@ -57,7 +57,9 @@ def test_dashboard_action_queues_are_mutually_exclusive_and_exclude_completed_ta
     stale = Task.objects.create(project=project, title="长期未更新")
     done = Task.objects.create(project=project, title="已完成", due_date=today - timedelta(days=2), status=Task.Status.DONE)
     Task.objects.filter(pk=stale.pk).update(updated_at=timezone.make_aware(datetime(2026, 8, 27)))
-    note = MeetingNote.objects.create(title="待确认", meeting_date=today, raw_text="原文")
+    note = MeetingNote.objects.create(
+        title="待确认", meeting_date=today, raw_text="原文", parse_status=MeetingNote.ParseStatus.SUCCESS,
+    )
     draft = ImportDraft.objects.create(meeting_note=note, payload={})
     Risk.objects.create(project=project, content="阻塞风险")
 

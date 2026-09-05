@@ -50,7 +50,7 @@
   <section aria-labelledby="follow-up-title">
     <h2 id="follow-up-title">按负责人跟进</h2>
     {% for group in follow_up_groups %}
-      <article class="card"><strong>{{ group.person.name }}</strong><pre>{{ group.text }}</pre></article>
+      <article class="card"><strong>{{ group.person.name }}</strong><pre class="follow-up-text">{{ group.text }}</pre></article>
     {% empty %}<div class="empty">当前没有需要按负责人催办的任务。</div>{% endfor %}
   </section>
 

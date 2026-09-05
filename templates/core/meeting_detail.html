@@ -41,7 +41,7 @@
           </div>
         {% endif %}
 
-        {% if latest_draft %}
+        {% if note.parse_status == 'success' and latest_draft and not latest_draft.confirmed_at %}
           <a class="draft-link" href="{% url 'draft_review' latest_draft.pk %}">
             <span><strong>已有解析草稿</strong><small>继续检查并确认入库</small></span>
             <b aria-hidden="true">→</b>
@@ -58,7 +58,7 @@
         <form method="post" action="{% url 'meeting_parse' note.pk %}" data-parse-form>
           {% csrf_token %}
           <button class="button primary large parse-button" type="submit" data-parse-button>
-            <span data-button-label>{% if latest_draft %}重新解析这份记录{% else %}开始 AI 解析{% endif %}</span>
+            <span data-button-label>{% if note.parse_status == 'success' and latest_draft %}重新解析这份记录{% elif note.parse_status == 'failed' %}重试解析{% else %}开始 AI 解析{% endif %}</span>
             <span class="button-loader" aria-hidden="true"></span>
           </button>
         </form>

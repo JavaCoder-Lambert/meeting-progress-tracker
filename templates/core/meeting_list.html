@@ -11,7 +11,7 @@
       <article class="card list-row">
         <div><strong>{{ note.title }}</strong><span>{{ note.meeting_date }} · {{ note.get_parse_status_display }}</span></div>
         <div class="row-actions">
-          {% if note.latest_draft and not note.latest_draft.confirmed_at %}
+          {% if note.parse_status == 'success' and note.latest_draft and not note.latest_draft.confirmed_at %}
             <a class="button" href="{% url 'draft_review' note.latest_draft.pk %}">继续确认</a>
           {% elif note.parse_status == 'not_parsed' %}
             <form method="post" action="{% url 'meeting_parse' note.pk %}">{% csrf_token %}<button class="button" type="submit">开始解析</button></form>

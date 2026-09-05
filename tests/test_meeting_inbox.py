@@ -56,3 +56,21 @@ def test_capture_parse_intent_saves_then_redirects_to_auto_parse_flag_without_ca
     assert response.status_code == 302
     assert response.url == f"{reverse('meeting_detail', args=[note.pk])}?auto_parse=1"
     assert note.parse_status == MeetingNote.ParseStatus.NOT_PARSED
+
+
+@pytest.mark.django_db
+def test_failed_parse_hides_old_draft_and_offers_retry_in_inbox_detail_and_dashboard(admin_client):
+    note = MeetingNote.objects.create(
+        title="解析失败记录", meeting_date=date(2026, 9, 5), raw_text="原文",
+        parse_status=MeetingNote.ParseStatus.FAILED,
+    )
+    old_draft = ImportDraft.objects.create(meeting_note=note, payload={})
+
+    inbox = admin_client.get(reverse("meeting_list"))
+    detail = admin_client.get(reverse("meeting_detail", args=[note.pk]))
+    dashboard = admin_client.get(reverse("dashboard"))
+
+    assert "重试解析" in inbox.content.decode()
+    assert reverse("draft_review", args=[old_draft.pk]) not in inbox.content.decode()
+    assert "已有解析草稿" not in detail.content.decode()
+    assert list(dashboard.context["pending_drafts"]) == []

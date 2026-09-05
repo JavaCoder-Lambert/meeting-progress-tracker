@@ -119,6 +119,11 @@ small { display: block; line-height: 1.45; }
 .metrics div:last-child { border-right: 0; }
 .metrics strong { display: block; color: white; font-size: 34px; line-height: 1.1; letter-spacing: -.05em; font-variant-numeric: tabular-nums; }
 .metrics span { display: block; margin-top: 10px; color: #b9c8c0; font-size: 13px; }
+.action-counts { grid-template-columns: repeat(5, 1fr); }
+.action-counts a { min-width: 0; min-height: 124px; display: block; padding: 24px 26px; border-right: 1px solid rgba(255, 255, 255, .1); }
+.action-counts a:last-child { border-right: 0; }
+.action-counts a:hover { background: rgba(255, 255, 255, .06); }
+.follow-up-text { margin: 8px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
 
 .grid.two { display: grid; grid-template-columns: minmax(0, 1.12fr) minmax(0, .88fr); gap: 28px; margin: 30px 0; align-items: start; }
 .card { display: block; margin-bottom: 12px; padding: 18px 20px; border: 1px solid var(--line); border-radius: var(--radius-md); background: rgba(255, 255, 255, .86); box-shadow: 0 12px 35px -31px rgba(23, 35, 29, .8); transition: border-color .24s var(--ease), transform .24s var(--ease), box-shadow .24s var(--ease); }
@@ -298,6 +303,10 @@ textarea { resize: vertical; line-height: 1.7; }
   .metrics { grid-template-columns: repeat(2, 1fr); }
   .metrics div:nth-child(2) { border-right: 0; }
   .metrics div:nth-child(-n+2) { border-bottom: 1px solid rgba(255, 255, 255, .1); }
+  .action-counts { grid-template-columns: repeat(2, 1fr); }
+  .action-counts a:nth-child(even) { border-right: 0; }
+  .action-counts a:nth-child(-n+4) { border-bottom: 1px solid rgba(255, 255, 255, .1); }
+  .action-counts a:last-child { border-right: 0; }
   .sticky { position: static; max-height: none; }
   .filters { grid-template-columns: repeat(2, 1fr); }
   .field-grid.four-cols { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -317,6 +326,7 @@ textarea { resize: vertical; line-height: 1.7; }
   .hero .button { width: 100%; }
   .metrics { margin-bottom: 26px; }
   .metrics div { min-height: 100px; padding: 19px; }
+  .action-counts a { min-height: 100px; padding: 19px; }
   .metrics strong { font-size: 28px; }
   .cards, .filters { grid-template-columns: 1fr; }
   .project-row { grid-template-columns: 1fr 42px; }
