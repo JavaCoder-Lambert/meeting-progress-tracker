@@ -318,3 +318,64 @@ def test_save_or_invalid_capture_cannot_grant_auto_parse(admin_client, intent, r
     for stored_note in MeetingNote.objects.all():
         response = admin_client.get(f"/meetings/{stored_note.pk}/?auto_parse=1")
         assert response.context["auto_parse"] is False
+
+
+@pytest.fixture
+def historically_confirmed_meeting(db):
+    from django.utils import timezone
+
+    note = make_note(parse_status="success")
+    confirmed = ImportDraft.objects.create(meeting_note=note, payload={"tasks": []}, confirmed_at=timezone.now())
+    newer = ImportDraft.objects.create(meeting_note=note, payload={"tasks": []})
+    return note, confirmed, newer
+
+
+@pytest.mark.django_db
+def test_historical_confirmed_draft_controls_detail_and_inbox_actions(admin_client, historically_confirmed_meeting):
+    note, confirmed, newer = historically_confirmed_meeting
+    html = admin_client.get(f"/meetings/{note.pk}/?auto_parse=1").content.decode()
+    assert "查看已入库结果" in html
+    assert f'href="/drafts/{confirmed.pk}/"' in html
+    assert f'href="/drafts/{newer.pk}/"' not in html
+    assert "data-parse-form" not in html
+    assert "data-auto-parse" not in html
+    inbox = admin_client.get("/meetings/").content.decode()
+    assert "查看结果" in inbox
+    assert f'href="/drafts/{newer.pk}/"' not in inbox
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("page", ["dashboard", "pending_inbox"])
+def test_historical_confirmed_meeting_is_excluded_from_both_pending_queues(admin_client, historically_confirmed_meeting, page):
+    if page == "dashboard":
+        response = admin_client.get("/")
+        assert response.context["action_counts"]["pending_drafts"] == 0
+        assert list(response.context["pending_drafts"]) == []
+    else:
+        response = admin_client.get("/meetings/?state=pending")
+        assert list(response.context["meeting_list"]) == []
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("ajax", [False, True])
+def test_historical_confirmation_blocks_parse_before_parser_call(admin_client, monkeypatch, historically_confirmed_meeting, ajax):
+    note, confirmed, newer = historically_confirmed_meeting
+
+    def forbidden(_note):
+        pytest.fail("Already-confirmed historical meeting reached parser")
+
+    monkeypatch.setattr("core.views.parse_meeting_note", forbidden)
+    headers = {"HTTP_X_REQUESTED_WITH": "XMLHttpRequest"} if ajax else {}
+    response = admin_client.post(f"/meetings/{note.pk}/parse/", follow=not ajax, **headers)
+    if ajax:
+        assert response.status_code == 422
+        assert "已入库" in response.json()["message"]
+    else:
+        assert response.status_code == 200
+        assert response.redirect_chain[-1][0] == f"/meetings/{note.pk}/"
+        assert "已入库" in response.content.decode()
+    assert note.drafts.count() == 2
+    newer.refresh_from_db()
+    assert newer.confirmed_at is None
+    with pytest.raises(DraftConfirmationError, match="已经入库"):
+        confirm_draft(newer.pk, {})

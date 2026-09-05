@@ -52,14 +52,15 @@ def meeting_detail(request, pk):
         ),
         pk=pk,
     )
+    confirmed_draft = next((draft for draft in note.ordered_drafts if draft.confirmed_at), None)
     auto_parse = False
     if request.GET.get("auto_parse") == "1" and request.session.get("auto_parse_note_id") == note.pk:
         del request.session["auto_parse_note_id"]
-        auto_parse = note.parse_status == MeetingNote.ParseStatus.NOT_PARSED
+        auto_parse = note.parse_status == MeetingNote.ParseStatus.NOT_PARSED and confirmed_draft is None
     return render(request, "core/meeting_detail.html", {
         "note": note,
         "latest_draft": note.ordered_drafts[0] if note.ordered_drafts else None,
-        "confirmed_draft": next((draft for draft in note.ordered_drafts if draft.confirmed_at), None),
+        "confirmed_draft": confirmed_draft,
         "auto_parse": auto_parse,
     })
 
@@ -71,9 +72,11 @@ def meeting_list(request):
     ))
     for note in meeting_list:
         note.latest_draft = note.ordered_drafts[0] if note.ordered_drafts else None
+        note.confirmed_draft = next((draft for draft in note.ordered_drafts if draft.confirmed_at), None)
     if request.GET.get("state") == "pending":
         meeting_list = [note for note in meeting_list
                         if note.parse_status == MeetingNote.ParseStatus.SUCCESS
+                        and not note.confirmed_draft
                         and note.latest_draft and not note.latest_draft.confirmed_at]
     return render(request, "core/meeting_list.html", {"meeting_list": meeting_list})
 
@@ -85,7 +88,7 @@ def meeting_parse(request, pk):
         return redirect("meeting_detail", pk=pk)
     wants_json = request.headers.get("X-Requested-With") == "XMLHttpRequest"
     try:
-        if note.parse_status == MeetingNote.ParseStatus.IMPORTED:
+        if note.parse_status == MeetingNote.ParseStatus.IMPORTED or note.drafts.filter(confirmed_at__isnull=False).exists():
             raise LLMParseError("该会议已入库，请查看已入库结果；如有新的进展，请新建会议记录。")
         draft = parse_meeting_note(note)
     except LLMParseError as exc:

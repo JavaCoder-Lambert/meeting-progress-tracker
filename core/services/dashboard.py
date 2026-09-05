@@ -61,7 +61,9 @@ def dashboard_context():
         pk=Subquery(latest_draft_id),
         confirmed_at__isnull=True,
         meeting_note__parse_status=MeetingNote.ParseStatus.SUCCESS,
-    ).select_related("meeting_note").order_by("-meeting_note__meeting_date", "-created_at", "-pk")
+    ).exclude(meeting_note__drafts__confirmed_at__isnull=False).select_related("meeting_note").order_by(
+        "-meeting_note__meeting_date", "-created_at", "-pk"
+    )
     open_risks = Risk.objects.exclude(
         status__in=[Risk.Status.RESOLVED, Risk.Status.CLOSED]
     ).select_related("project", "owner")
