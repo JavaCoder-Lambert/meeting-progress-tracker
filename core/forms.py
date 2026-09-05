@@ -4,6 +4,12 @@ from .models import MeetingNote, Milestone, Person, Project, Risk, Task
 
 
 class MeetingNoteForm(forms.ModelForm):
+    intent = forms.ChoiceField(
+        choices=(("save", "仅保存"), ("parse", "保存并开始解析")),
+        required=False,
+        initial="save",
+    )
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         if not self.is_bound and not self.instance.pk:

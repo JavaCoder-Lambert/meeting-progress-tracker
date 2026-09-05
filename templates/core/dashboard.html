@@ -1,1 +1,68 @@
-{% extends "base.html" %}{% block content %}<div class="page"><div class="hero"><div><span class="eyebrow">个人项目经理工作台</span><h1>今天需要推进什么？</h1><p class="muted">从会议原文到任务、风险与周报，所有信息留在一处。</p></div><a class="button primary large" href="{% url 'meeting_create' %}">＋ 粘贴会议记录</a></div><section class="metrics"><div><strong>{{ metrics.in_progress }}</strong><span>进行中</span></div><div><strong>{{ metrics.acceptance }}</strong><span>待验收</span></div><div><strong>{{ metrics.delayed }}</strong><span>已延期</span></div><div><strong>{{ metrics.blocked }}</strong><span>阻塞</span></div></section><div class="grid two"><section><div class="section-head"><h2>项目进度</h2><a href="{% url 'project_create' %}">新建</a></div>{% for p in projects %}<a class="card project-row" href="{% url 'project_detail' p.pk %}"><div><strong>{{ p.name }}</strong><span>{{ p.get_status_display }} · {{ p.task_count }} 个任务</span></div><div class="progress"><i style="width:{{ p.progress }}%"></i></div><b>{{ p.progress }}%</b></a>{% empty %}<div class="empty">还没有项目，先创建一个。</div>{% endfor %}</section><section><h2>近期截止</h2>{% for task in due_tasks %}<a class="card list-row" href="{% url 'task_edit' task.pk %}"><div><strong>{{ task.title }}</strong><span>{{ task.project.name }}{% if task.assignee %} · {{ task.assignee.name }}{% endif %}</span></div><time class="{% if task.is_overdue %}danger{% endif %}">{{ task.due_date }}</time></a>{% empty %}<div class="empty">近期没有到期任务。</div>{% endfor %}</section></div><div class="grid two"><section><h2>未解决风险</h2>{% for risk in risks %}<div class="card list-row"><div><strong>{{ risk.get_risk_type_display }}</strong><span>{{ risk.project.name }} · {{ risk.content }}</span></div></div>{% empty %}<div class="empty">当前没有风险记录。</div>{% endfor %}</section><section><h2>最近会议</h2>{% for note in meetings %}<a class="card list-row" href="{% url 'meeting_detail' note.pk %}"><div><strong>{{ note.title }}</strong><span>{{ note.get_parse_status_display }}</span></div><time>{{ note.meeting_date }}</time></a>{% empty %}<div class="empty">尚未录入会议。</div>{% endfor %}</section></div></div>{% endblock %}
+{% extends "base.html" %}
+{% block content %}
+<div class="page">
+  <div class="hero">
+    <div><span class="eyebrow">个人项目经理工作台</span><h1>今天需要推进什么？</h1><p class="muted">先处理需要确认、到期和长期没有更新的事项。</p></div>
+    <a class="button primary large" href="{% url 'meeting_create' %}">＋ 粘贴会议记录</a>
+  </div>
+
+  <section aria-labelledby="action-summary-title">
+    <div class="section-head"><h2 id="action-summary-title">行动摘要</h2><a href="{% url 'meeting_list' %}">查看会议收件箱</a></div>
+    <div class="metrics action-counts">
+      <a href="{% url 'meeting_list' %}?state=pending"><strong>{{ action_counts.pending_drafts }}</strong><span>待确认</span></a>
+      <a href="{% url 'task_list' %}?queue=overdue"><strong>{{ action_counts.overdue_tasks }}</strong><span>逾期</span></a>
+      <a href="{% url 'task_list' %}?queue=due_soon"><strong>{{ action_counts.due_soon_tasks }}</strong><span>7 天内到期</span></a>
+      <a href="{% url 'task_list' %}?queue=stale"><strong>{{ action_counts.stale_tasks }}</strong><span>长期未更新</span></a>
+      <a href="#open-risks"><strong>{{ action_counts.open_risks }}</strong><span>未解决风险</span></a>
+    </div>
+  </section>
+
+  <div class="grid two">
+    <section aria-labelledby="draft-queue-title">
+      <h2 id="draft-queue-title">待确认草稿</h2>
+      {% for draft in pending_drafts %}
+        <a class="card list-row" href="{% url 'draft_review' draft.pk %}"><div><strong>{{ draft.meeting_note.title }}</strong><span>{{ draft.meeting_note.meeting_date }} · 继续检查并确认入库</span></div><b aria-hidden="true">→</b></a>
+      {% empty %}<div class="empty">没有待确认草稿。录入会议后，解析结果会先在这里等待确认。</div>{% endfor %}
+    </section>
+    <section aria-labelledby="overdue-queue-title">
+      <div class="section-head"><h2 id="overdue-queue-title">优先处理：逾期</h2><a href="{% url 'task_list' %}?queue=overdue">查看全部</a></div>
+      {% for task in overdue_tasks %}
+        <a class="card list-row" href="{% url 'task_detail' task.pk %}"><div><strong>{{ task.title }}</strong><span>{{ task.project.name }}{% if task.assignee %} · {{ task.assignee.name }}{% endif %}</span></div><time class="danger">{{ task.due_date }}</time></a>
+      {% empty %}<div class="empty">没有逾期任务。</div>{% endfor %}
+    </section>
+  </div>
+
+  <div class="grid two">
+    <section aria-labelledby="due-soon-title">
+      <div class="section-head"><h2 id="due-soon-title">接下来 7 天到期</h2><a href="{% url 'task_list' %}?queue=due_soon">查看全部</a></div>
+      {% for task in due_soon_tasks %}
+        <a class="card list-row" href="{% url 'task_detail' task.pk %}"><div><strong>{{ task.title }}</strong><span>{{ task.project.name }}{% if task.assignee %} · {{ task.assignee.name }}{% endif %}</span></div><time>{{ task.due_date }}</time></a>
+      {% empty %}<div class="empty">未来 7 天没有到期任务。</div>{% endfor %}
+    </section>
+    <section aria-labelledby="stale-title">
+      <div class="section-head"><h2 id="stale-title">长期未更新</h2><a href="{% url 'task_list' %}?queue=stale">查看全部</a></div>
+      {% for task in stale_tasks %}
+        <a class="card list-row" href="{% url 'task_detail' task.pk %}"><div><strong>{{ task.title }}</strong><span>{{ task.project.name }}{% if task.assignee %} · {{ task.assignee.name }}{% endif %}</span></div><time>{{ task.updated_at|date:"Y-m-d" }}</time></a>
+      {% empty %}<div class="empty">没有长期未更新的任务。</div>{% endfor %}
+    </section>
+  </div>
+
+  <section aria-labelledby="follow-up-title">
+    <h2 id="follow-up-title">按负责人跟进</h2>
+    {% for group in follow_up_groups %}
+      <article class="card"><strong>{{ group.person.name }}</strong><pre>{{ group.text }}</pre></article>
+    {% empty %}<div class="empty">当前没有需要按负责人催办的任务。</div>{% endfor %}
+  </section>
+
+  <div class="grid two">
+    <section id="open-risks" aria-labelledby="risk-title">
+      <h2 id="risk-title">未解决风险</h2>
+      {% for risk in open_risks %}<div class="card list-row"><div><strong>{{ risk.get_risk_type_display }}</strong><span>{{ risk.project.name }} · {{ risk.content }}{% if risk.owner %} · {{ risk.owner.name }}{% endif %}</span></div></div>{% empty %}<div class="empty">当前没有风险记录。</div>{% endfor %}
+    </section>
+    <section aria-labelledby="meeting-title">
+      <div class="section-head"><h2 id="meeting-title">最近会议</h2><a href="{% url 'meeting_list' %}">全部会议</a></div>
+      {% for note in meetings %}<a class="card list-row" href="{% url 'meeting_detail' note.pk %}"><div><strong>{{ note.title }}</strong><span>{{ note.get_parse_status_display }}</span></div><time>{{ note.meeting_date }}</time></a>{% empty %}<div class="empty">尚未录入会议。</div>{% endfor %}
+    </section>
+  </div>
+</div>
+{% endblock %}

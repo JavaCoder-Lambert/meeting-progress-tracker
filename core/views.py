@@ -4,6 +4,7 @@ from datetime import date, timedelta
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
+from django.db.models import Prefetch
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -34,14 +35,37 @@ def meeting_create(request):
     form = MeetingNoteForm(request.POST or None)
     if request.method == "POST" and form.is_valid():
         note = form.save()
+        if form.cleaned_data.get("intent") == "parse":
+            return redirect(f"{reverse('meeting_detail', args=[note.pk])}?auto_parse=1")
         return redirect("meeting_detail", pk=note.pk)
     return render(request, "core/meeting_form.html", {"form": form})
 
 
 @login_required
 def meeting_detail(request, pk):
-    note = get_object_or_404(MeetingNote, pk=pk)
-    return render(request, "core/meeting_detail.html", {"note": note, "latest_draft": note.drafts.first()})
+    note = get_object_or_404(
+        MeetingNote.objects.prefetch_related(
+            Prefetch("drafts", queryset=ImportDraft.objects.order_by("-created_at", "-pk"), to_attr="ordered_drafts")
+        ),
+        pk=pk,
+    )
+    return render(request, "core/meeting_detail.html", {
+        "note": note,
+        "latest_draft": note.ordered_drafts[0] if note.ordered_drafts else None,
+        "auto_parse": request.GET.get("auto_parse") == "1",
+    })
+
+
+@login_required
+def meeting_list(request):
+    meeting_list = list(MeetingNote.objects.prefetch_related(
+        Prefetch("drafts", queryset=ImportDraft.objects.order_by("-created_at", "-pk"), to_attr="ordered_drafts")
+    ))
+    for note in meeting_list:
+        note.latest_draft = note.ordered_drafts[0] if note.ordered_drafts else None
+    if request.GET.get("state") == "pending":
+        meeting_list = [note for note in meeting_list if note.latest_draft and not note.latest_draft.confirmed_at]
+    return render(request, "core/meeting_list.html", {"meeting_list": meeting_list})
 
 
 @login_required
@@ -141,6 +165,15 @@ def task_list(request):
         value = request.GET.get(field, "")
         filters[field] = value
         if value: tasks = tasks.filter(**{field: value})
+    queue = request.GET.get("queue", "")
+    filters["queue"] = queue
+    today = timezone.localdate()
+    if queue == "overdue":
+        tasks = tasks.exclude(status=Task.Status.DONE).filter(due_date__lt=today)
+    elif queue == "due_soon":
+        tasks = tasks.exclude(status=Task.Status.DONE).filter(due_date__gte=today, due_date__lte=today + timedelta(days=7))
+    elif queue == "stale":
+        tasks = tasks.exclude(status=Task.Status.DONE).filter(updated_at__date__lt=today - timedelta(days=7))
     return render(request, "core/task_list.html", {
         "tasks": tasks,
         "projects": Project.objects.all(),

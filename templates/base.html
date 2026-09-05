@@ -19,7 +19,7 @@
             <span>进度台</span>
           </a>
           <nav aria-label="主导航">
-            <a {% if current == 'meeting_create' or current == 'meeting_detail' or current == 'draft_review' %}class="active" aria-current="page"{% endif %} href="{% url 'meeting_create' %}">快速记录</a>
+            <a {% if current == 'meeting_list' or current == 'meeting_create' or current == 'meeting_detail' or current == 'draft_review' %}class="active" aria-current="page"{% endif %} href="{% url 'meeting_list' %}">会议</a>
             <a {% if current == 'project_list' or current == 'project_detail' or current == 'project_create' or current == 'project_edit' %}class="active" aria-current="page"{% endif %} href="{% url 'project_list' %}">项目</a>
             <a {% if current == 'task_list' or current == 'task_board' or current == 'task_create' or current == 'task_edit' %}class="active" aria-current="page"{% endif %} href="{% url 'task_list' %}">任务</a>
             <a {% if current == 'person_list' or current == 'person_detail' or current == 'person_create' or current == 'person_edit' %}class="active" aria-current="page"{% endif %} href="{% url 'person_list' %}">人员</a>

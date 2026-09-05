@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}会议{% endblock %}
+{% block content %}
+<div class="page">
+  <div class="page-head">
+    <div><span class="eyebrow">会议收件箱</span><h1>会议记录</h1><p class="muted">从原文开始，逐步解析并确认入库。</p></div>
+    <a class="button primary" href="{% url 'meeting_create' %}">＋ 快速录入</a>
+  </div>
+  <section aria-label="会议列表">
+    {% for note in meeting_list %}
+      <article class="card list-row">
+        <div><strong>{{ note.title }}</strong><span>{{ note.meeting_date }} · {{ note.get_parse_status_display }}</span></div>
+        <div class="row-actions">
+          {% if note.latest_draft and not note.latest_draft.confirmed_at %}
+            <a class="button" href="{% url 'draft_review' note.latest_draft.pk %}">继续确认</a>
+          {% elif note.parse_status == 'not_parsed' %}
+            <form method="post" action="{% url 'meeting_parse' note.pk %}">{% csrf_token %}<button class="button" type="submit">开始解析</button></form>
+          {% elif note.parse_status == 'failed' %}
+            <form method="post" action="{% url 'meeting_parse' note.pk %}">{% csrf_token %}<button class="button" type="submit">重试解析</button></form>
+          {% elif note.parse_status == 'imported' %}
+            <a class="button" href="{% url 'meeting_detail' note.pk %}">查看结果</a>
+          {% else %}
+            <a class="button" href="{% url 'meeting_detail' note.pk %}">查看详情</a>
+          {% endif %}
+        </div>
+      </article>
+    {% empty %}
+      <div class="empty">还没有会议记录。粘贴一段钉钉消息或会议速记即可开始。</div>
+    {% endfor %}
+  </section>
+</div>
+{% endblock %}

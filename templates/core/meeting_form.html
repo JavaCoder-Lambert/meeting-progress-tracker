@@ -38,8 +38,9 @@
           {{ form.raw_text.errors }}
         </div>
         <div class="form-actions">
-          <span>保存后可继续检查原文，再开始 AI 解析。</span>
-          <button class="button primary large" type="submit" data-submit-label="正在保存">保存并继续</button>
+          <span>保存后会进入会议详情；开始解析会在支持的浏览器中自动准备，无 JavaScript 时可在详情页点击解析。</span>
+          <button class="button primary large" type="submit" name="intent" value="parse" data-submit-label="正在保存">保存并开始解析</button>
+          <button class="button" type="submit" name="intent" value="save">仅保存</button>
         </div>
       </form>
     </div>

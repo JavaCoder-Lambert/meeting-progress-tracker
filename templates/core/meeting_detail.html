@@ -54,6 +54,7 @@
           <li><span>3</span><div><strong>人工确认</strong><small>确认后才会更新正式数据</small></div></li>
         </ol>
 
+        {% if auto_parse %}<p class="inline-feedback" data-auto-parse>已保存会议记录；正在准备解析。若未自动开始，请点击下方按钮。</p>{% endif %}
         <form method="post" action="{% url 'meeting_parse' note.pk %}" data-parse-form>
           {% csrf_token %}
           <button class="button primary large parse-button" type="submit" data-parse-button>
