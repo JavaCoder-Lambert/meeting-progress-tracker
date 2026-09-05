@@ -6,130 +6,60 @@
       <div>
         <span class="eyebrow">{% if is_confirmed %}已确认 · 只读记录{% else %}AI 草稿 · 确认后入库{% endif %}</span>
         <h1>{{ note.title }}</h1>
-        <p class="muted">{% if is_confirmed %}这份草稿已经写入任务中心，以下保留当时的确认内容。{% else %}逐项检查项目、负责人和日期；选择“忽略”的内容不会写入。{% endif %}</p>
+        <p class="muted">{% if is_confirmed %}这份草稿已经写入任务中心，以下保留当时的确认内容。{% else %}优先处理需确认项；可直接导入的任务已折叠。{% endif %}</p>
       </div>
       <a class="button" href="{% url 'meeting_detail' note.pk %}">返回原文</a>
     </div>
-
     {% if error %}<div class="alert error" role="alert">{{ error }}</div>{% endif %}
     {% if is_confirmed %}<div class="alert success" role="status">该草稿已经入库，当前页面仅供查看。</div>{% endif %}
-
     {% if draft.payload.summary or draft.payload.uncertainties %}
       <section class="draft-overview">
-        {% if draft.payload.summary %}
-          <div><span class="section-kicker">会议摘要</span><p>{{ draft.payload.summary }}</p></div>
-        {% endif %}
-        {% if draft.payload.uncertainties %}
-          <div><span class="section-kicker">需要确认</span><ul>{% for item in draft.payload.uncertainties %}<li>{{ item }}</li>{% endfor %}</ul></div>
-        {% endif %}
+        {% if draft.payload.summary %}<div><span class="section-kicker">会议摘要</span><p>{{ draft.payload.summary }}</p></div>{% endif %}
+        {% if draft.payload.uncertainties %}<div><span class="section-kicker">需要确认</span><ul>{% for item in draft.payload.uncertainties %}<li>{{ item }}</li>{% endfor %}</ul></div>{% endif %}
       </section>
     {% endif %}
 
     <form method="post" action="{% url 'draft_confirm' draft.pk %}" {% if not is_confirmed %}data-submit-once{% endif %}>
       {% csrf_token %}
       <fieldset class="review-fieldset" {% if is_confirmed %}disabled{% endif %}>
-      <div class="review-grid">
-        <aside class="source-panel sticky">
-          <div class="panel-head"><div><span class="section-kicker">对照检查</span><h2>会议原文</h2></div><span class="text-stat">{{ note.raw_text|length }} 字</span></div>
-          <pre class="note-text">{{ note.raw_text }}</pre>
-        </aside>
-
-        <section class="review-main">
-          <div class="section-head review-section-head"><div><span class="section-kicker">识别结果</span><h2>任务</h2></div><span class="count-badge">{{ task_rows|length }} 项</span></div>
-          <div class="review-list">
-            {% for row in task_rows %}
-              <article class="review-item">
-                <div class="review-item-head">
-                  <span class="item-number">{{ forloop.counter|stringformat:"02d" }}</span>
-                  <div><strong>{{ row.item.title }}</strong><small>{{ row.item.project_name|default:"尚未匹配项目" }}{% if row.item.assignee_name %} · {{ row.item.assignee_name }}{% endif %}</small></div>
-                </div>
-
-                <div class="field-grid two-cols">
-                  <div class="field">
-                    <label for="task-{{ forloop.counter0 }}-action">处理方式</label>
-                    <select id="task-{{ forloop.counter0 }}-action" name="task_{{ forloop.counter0 }}_action" data-task-action>
-                      <option value="create" {% if row.action == "create" %}selected{% endif %}>新建任务</option>
-                      {% if row.candidates %}<option value="update" {% if row.action == "update" %}selected{% endif %}>更新已有任务</option>{% endif %}
-                      <option value="ignore" {% if row.action == "ignore" %}selected{% endif %}>忽略本项</option>
-                    </select>
-                  </div>
-                  <div class="field" data-existing-field {% if row.action != "update" %}hidden{% endif %}>
-                    <label for="task-{{ forloop.counter0 }}-existing">可能对应已有任务</label>
-                    <select id="task-{{ forloop.counter0 }}-existing" name="task_{{ forloop.counter0 }}_existing" {% if row.action != "update" %}disabled{% else %}required{% endif %}>
-                      <option value="">请选择已有任务</option>
-                      {% for c in row.candidates %}<option value="{{ c.task_id }}" {% if row.existing_id == c.task_id|stringformat:"s" %}selected{% endif %}>{{ c.title }} · 匹配度 {{ c.score }}</option>{% endfor %}
-                    </select>
-                  </div>
-                </div>
-
-                <div class="field">
-                  <label for="task-{{ forloop.counter0 }}-title">任务标题</label>
-                  <input id="task-{{ forloop.counter0 }}-title" name="task_{{ forloop.counter0 }}_title" value="{{ row.item.title }}">
-                </div>
-                <div class="field-grid two-cols">
-                  <div class="field"><label for="task-{{ forloop.counter0 }}-project">项目</label><select id="task-{{ forloop.counter0 }}-project" name="task_{{ forloop.counter0 }}_project"><option value="">请选择</option>{% for p in projects %}<option value="{{ p.pk }}" {% if row.project_id == p.pk|stringformat:"s" %}selected{% endif %}>{{ p.name }}</option>{% endfor %}</select></div>
-                  <div class="field"><label for="task-{{ forloop.counter0 }}-assignee">负责人</label><select id="task-{{ forloop.counter0 }}-assignee" name="task_{{ forloop.counter0 }}_assignee"><option value="">未指定</option>{% for p in people %}<option value="{{ p.pk }}" {% if row.assignee_id == p.pk|stringformat:"s" %}selected{% endif %}>{{ p.name }}</option>{% endfor %}</select></div>
-                </div>
-                <div class="field-grid three-cols">
-                  <div class="field"><label for="task-{{ forloop.counter0 }}-status">状态</label><select id="task-{{ forloop.counter0 }}-status" name="task_{{ forloop.counter0 }}_status">{% for value,label in task_statuses %}<option value="{{ value }}" {% if value == row.item.status %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
-                  <div class="field"><label for="task-{{ forloop.counter0 }}-priority">优先级</label><select id="task-{{ forloop.counter0 }}-priority" name="task_{{ forloop.counter0 }}_priority">{% for value,label in task_priorities %}<option value="{{ value }}" {% if value == row.item.priority|default:"normal" %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
-                  <div class="field"><label for="task-{{ forloop.counter0 }}-progress">进度（%）</label><input id="task-{{ forloop.counter0 }}-progress" type="number" min="0" max="100" name="task_{{ forloop.counter0 }}_progress" value="{{ row.item.progress }}"></div>
-                </div>
-                <div class="field-grid three-cols">
-                  <div class="field"><label for="task-{{ forloop.counter0 }}-planned-start">计划开始</label><input id="task-{{ forloop.counter0 }}-planned-start" type="{{ row.planned_start_date.type }}" name="task_{{ forloop.counter0 }}_planned_start_date" value="{{ row.planned_start_date.value }}" {% if row.planned_start_date.type == "text" %}placeholder="请改为 YYYY-MM-DD"{% endif %}></div>
-                  <div class="field"><label for="task-{{ forloop.counter0 }}-due">截止日期</label><input id="task-{{ forloop.counter0 }}-due" type="{{ row.due_date.type }}" name="task_{{ forloop.counter0 }}_due_date" value="{{ row.due_date.value }}" {% if row.due_date.type == "text" %}placeholder="请改为 YYYY-MM-DD"{% endif %}></div>
-                  <div class="field"><label for="task-{{ forloop.counter0 }}-acceptance">验收日期</label><input id="task-{{ forloop.counter0 }}-acceptance" type="{{ row.acceptance_date.type }}" name="task_{{ forloop.counter0 }}_acceptance_date" value="{{ row.acceptance_date.value }}" {% if row.acceptance_date.type == "text" %}placeholder="请改为 YYYY-MM-DD"{% endif %}></div>
-                </div>
-
-                {% if row.item.description or row.item.current_note or row.item.completed_work or row.item.next_step %}
-                  <details class="item-details">
-                    <summary>查看更多识别内容</summary>
-                    <div class="field"><label for="task-{{ forloop.counter0 }}-description">任务说明</label><textarea id="task-{{ forloop.counter0 }}-description" rows="2" name="task_{{ forloop.counter0 }}_description">{{ row.item.description }}</textarea></div>
-                    <div class="field-grid two-cols"><div class="field"><label for="task-{{ forloop.counter0 }}-completed-work">已完成</label><textarea id="task-{{ forloop.counter0 }}-completed-work" rows="2" name="task_{{ forloop.counter0 }}_completed_work">{{ row.item.completed_work }}</textarea></div><div class="field"><label for="task-{{ forloop.counter0 }}-next-step">下一步</label><textarea id="task-{{ forloop.counter0 }}-next-step" rows="2" name="task_{{ forloop.counter0 }}_next_step">{{ row.item.next_step }}</textarea></div></div>
-                    <div class="field"><label for="task-{{ forloop.counter0 }}-current-note">当前说明</label><textarea id="task-{{ forloop.counter0 }}-current-note" rows="2" name="task_{{ forloop.counter0 }}_current_note">{{ row.item.current_note }}</textarea></div>
-                  </details>
-                {% endif %}
-              </article>
-            {% empty %}
-              <div class="empty">这份记录中没有识别到明确任务。</div>
-            {% endfor %}
-          </div>
-
-          {% if draft.payload.risks or draft.payload.milestones %}
-            <div class="section-head review-section-head secondary-section"><div><span class="section-kicker">补充信息</span><h2>风险与里程碑</h2></div></div>
-          {% endif %}
-
-          {% for row in risk_rows %}
-            <article class="review-item compact-item">
-              <div class="review-item-head"><span class="item-number risk-mark">险</span><div><strong>{{ row.item.content }}</strong><small>{{ row.item.project_name|default:"尚未匹配项目" }}{% if row.item.owner_name %} · {{ row.item.owner_name }}{% endif %}</small></div></div>
-              <div class="field-grid four-cols">
-                <div class="field"><label for="risk-{{ forloop.counter0 }}-action">处理方式</label><select id="risk-{{ forloop.counter0 }}-action" name="risks_{{ forloop.counter0 }}_action"><option value="ignore" {% if row.action == "ignore" %}selected{% endif %}>暂不入库</option><option value="create" {% if row.action == "create" %}selected{% endif %}>确认创建</option></select></div>
-                <div class="field"><label for="risk-{{ forloop.counter0 }}-project">项目</label><select id="risk-{{ forloop.counter0 }}-project" name="risks_{{ forloop.counter0 }}_project"><option value="">选择项目</option>{% for p in projects %}<option value="{{ p.pk }}" {% if row.project_id == p.pk|stringformat:"s" %}selected{% endif %}>{{ p.name }}</option>{% endfor %}</select></div>
-                <div class="field"><label for="risk-{{ forloop.counter0 }}-owner">负责人</label><select id="risk-{{ forloop.counter0 }}-owner" name="risks_{{ forloop.counter0 }}_owner"><option value="">未指定</option>{% for p in people %}<option value="{{ p.pk }}" {% if row.owner_id == p.pk|stringformat:"s" %}selected{% endif %}>{{ p.name }}</option>{% endfor %}</select></div>
-                <div class="field"><label for="risk-{{ forloop.counter0 }}-due">跟进日期</label><input id="risk-{{ forloop.counter0 }}-due" type="{{ row.due_date.type }}" name="risks_{{ forloop.counter0 }}_due_date" value="{{ row.due_date.value }}" {% if row.due_date.type == "text" %}placeholder="请改为 YYYY-MM-DD"{% endif %}></div>
-              </div>
-            </article>
-          {% endfor %}
-
-          {% for row in milestone_rows %}
-            <article class="review-item compact-item">
-              <div class="review-item-head"><span class="item-number">点</span><div><strong>{{ row.item.name }}</strong><small>{{ row.item.target_date|default:"日期待定" }}{% if row.item.description %} · {{ row.item.description }}{% endif %}</small></div></div>
-              <div class="field-grid three-cols">
-                <div class="field"><label for="milestone-{{ forloop.counter0 }}-action">处理方式</label><select id="milestone-{{ forloop.counter0 }}-action" name="milestones_{{ forloop.counter0 }}_action"><option value="ignore" {% if row.action == "ignore" %}selected{% endif %}>暂不入库</option><option value="create" {% if row.action == "create" %}selected{% endif %}>确认创建</option></select></div>
-                <div class="field"><label for="milestone-{{ forloop.counter0 }}-project">项目</label><select id="milestone-{{ forloop.counter0 }}-project" name="milestones_{{ forloop.counter0 }}_project"><option value="">选择项目</option>{% for p in projects %}<option value="{{ p.pk }}" {% if row.project_id == p.pk|stringformat:"s" %}selected{% endif %}>{{ p.name }}</option>{% endfor %}</select></div>
-                <div class="field"><label for="milestone-{{ forloop.counter0 }}-target">目标日期</label><input id="milestone-{{ forloop.counter0 }}-target" type="{{ row.target_date.type }}" name="milestones_{{ forloop.counter0 }}_target_date" value="{{ row.target_date.value }}" {% if row.target_date.type == "text" %}placeholder="请改为 YYYY-MM-DD"{% endif %}></div>
-              </div>
-            </article>
-          {% endfor %}
-
-          {% if not is_confirmed %}
-            <div class="sticky-actions">
-              <div><strong>确认无误后入库</strong><small>任务仍可在任务中心继续修改</small></div>
-              <button class="button primary large" type="submit" data-submit-label="正在入库">确认并入库</button>
+        <div class="review-grid">
+          <aside class="source-panel sticky">
+            <div class="panel-head"><div><span class="section-kicker">对照检查</span><h2>会议原文</h2></div><span class="text-stat">{{ note.raw_text|length }} 字</span></div>
+            <pre class="note-text">{{ note.raw_text }}</pre>
+          </aside>
+          <section class="review-main" aria-label="导入草稿审阅">
+            <div class="summary-strip" aria-live="polite" data-review-summary>
+              <span>预计新增 {{ review_counts.create }} 项</span><span>更新 {{ review_counts.update }} 项</span><span>忽略 {{ review_counts.ignore }} 项</span><span>需确认 {{ review_counts.attention }} 项</span>
             </div>
-          {% endif %}
-        </section>
-      </div>
+            <div class="section-head review-section-head"><div><span class="section-kicker">识别结果</span><h2>任务</h2></div><span class="count-badge">{{ task_rows|length }} 项</span></div>
+            {% if not is_confirmed %}
+              <div class="review-controls" aria-label="审阅筛选和批量处理">
+                <button type="button" class="button" data-review-filter="attention">仅看需确认</button><button type="button" class="button" data-review-filter="all">查看全部</button><button type="button" class="button" data-batch-action="recommended">接受推荐</button><button type="button" class="button" data-batch-action="ignore-attention">忽略需确认项</button>
+              </div>
+            {% endif %}
+            <div class="review-list" data-review-list>
+              {% for row in task_rows %}
+                <details class="review-item" {% if row.needs_attention %}open{% endif %} data-review-row data-needs-attention="{{ row.needs_attention|yesno:'true,false' }}">
+                  <summary class="review-item-head"><span class="item-number">{{ forloop.counter|stringformat:"02d" }}</span><span><strong>{{ row.item.title }}</strong><small>{{ row.item.project_name|default:"尚未匹配项目" }}{% if row.item.assignee_name %} · {{ row.item.assignee_name }}{% endif %}</small></span><span class="count-badge">{{ row.action }}</span></summary>
+                  <div class="review-item-body">
+                    {% if row.attention_reasons %}<div class="alert error" role="status"><strong>需要确认：</strong>{{ row.attention_reasons|join:"、" }}</div>{% endif %}
+                    {% if row.diffs %}<div class="diff-list"><strong>与已有任务的差异</strong><ul>{% for diff in row.diffs %}<li>{{ diff.label }}：{{ diff.existing|default:"未填写" }} → {{ diff.incoming|default:"未填写" }}</li>{% endfor %}</ul></div>{% endif %}
+                    <div class="field-grid two-cols"><div class="field"><label for="task-{{ forloop.counter0 }}-action">处理方式</label><select id="task-{{ forloop.counter0 }}-action" name="task_{{ forloop.counter0 }}_action" data-task-action><option value="create" {% if row.action == "create" %}selected{% endif %}>新建任务</option>{% if row.candidates %}<option value="update" {% if row.action == "update" %}selected{% endif %}>更新已有任务</option>{% endif %}<option value="ignore" {% if row.action == "ignore" %}selected{% endif %}>忽略本项</option></select></div><div class="field" data-existing-field {% if row.action != "update" %}hidden{% endif %}><label for="task-{{ forloop.counter0 }}-existing">可能对应已有任务</label><select id="task-{{ forloop.counter0 }}-existing" name="task_{{ forloop.counter0 }}_existing" {% if row.action != "update" %}disabled{% else %}required{% endif %}><option value="">请选择已有任务</option>{% for c in row.candidates %}<option value="{{ c.task_id }}" {% if row.existing_id == c.task_id|stringformat:"s" %}selected{% endif %}>{{ c.title }} · 匹配度 {{ c.score }}</option>{% endfor %}</select></div></div>
+                    <div class="field"><label for="task-{{ forloop.counter0 }}-title">任务标题</label><input id="task-{{ forloop.counter0 }}-title" name="task_{{ forloop.counter0 }}_title" value="{{ row.item.title }}"></div>
+                    <div class="field-grid two-cols"><div class="field"><label for="task-{{ forloop.counter0 }}-project">项目</label><select id="task-{{ forloop.counter0 }}-project" name="task_{{ forloop.counter0 }}_project"><option value="">请选择</option>{% for p in projects %}<option value="{{ p.pk }}" {% if row.project_id == p.pk|stringformat:"s" %}selected{% endif %}>{{ p.name }}</option>{% endfor %}</select></div><div class="field"><label for="task-{{ forloop.counter0 }}-assignee">负责人</label><select id="task-{{ forloop.counter0 }}-assignee" name="task_{{ forloop.counter0 }}_assignee"><option value="">未指定</option>{% for p in people %}<option value="{{ p.pk }}" {% if row.assignee_id == p.pk|stringformat:"s" %}selected{% endif %}>{{ p.name }}</option>{% endfor %}</select></div></div>
+                    <div class="field-grid three-cols"><div class="field"><label for="task-{{ forloop.counter0 }}-status">状态</label><select id="task-{{ forloop.counter0 }}-status" name="task_{{ forloop.counter0 }}_status">{% for value,label in task_statuses %}<option value="{{ value }}" {% if value == row.item.status %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div><div class="field"><label for="task-{{ forloop.counter0 }}-priority">优先级</label><select id="task-{{ forloop.counter0 }}-priority" name="task_{{ forloop.counter0 }}_priority">{% for value,label in task_priorities %}<option value="{{ value }}" {% if value == row.item.priority|default:"normal" %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div><div class="field"><label for="task-{{ forloop.counter0 }}-progress">进度（%）</label><input id="task-{{ forloop.counter0 }}-progress" type="number" min="0" max="100" name="task_{{ forloop.counter0 }}_progress" value="{{ row.item.progress }}"></div></div>
+                    <div class="field-grid three-cols"><div class="field"><label for="task-{{ forloop.counter0 }}-planned-start">计划开始</label><input id="task-{{ forloop.counter0 }}-planned-start" type="{{ row.planned_start_date.type }}" name="task_{{ forloop.counter0 }}_planned_start_date" value="{{ row.planned_start_date.value }}" {% if row.planned_start_date.type == "text" %}placeholder="请改为 YYYY-MM-DD"{% endif %}></div><div class="field"><label for="task-{{ forloop.counter0 }}-due">截止日期</label><input id="task-{{ forloop.counter0 }}-due" type="{{ row.due_date.type }}" name="task_{{ forloop.counter0 }}_due_date" value="{{ row.due_date.value }}" {% if row.due_date.type == "text" %}placeholder="请改为 YYYY-MM-DD"{% endif %}></div><div class="field"><label for="task-{{ forloop.counter0 }}-acceptance">验收日期</label><input id="task-{{ forloop.counter0 }}-acceptance" type="{{ row.acceptance_date.type }}" name="task_{{ forloop.counter0 }}_acceptance_date" value="{{ row.acceptance_date.value }}" {% if row.acceptance_date.type == "text" %}placeholder="请改为 YYYY-MM-DD"{% endif %}></div></div>
+                    <div class="field"><label for="task-{{ forloop.counter0 }}-description">任务说明</label><textarea id="task-{{ forloop.counter0 }}-description" rows="2" name="task_{{ forloop.counter0 }}_description">{{ row.item.description }}</textarea></div><div class="field-grid two-cols"><div class="field"><label for="task-{{ forloop.counter0 }}-completed-work">已完成</label><textarea id="task-{{ forloop.counter0 }}-completed-work" rows="2" name="task_{{ forloop.counter0 }}_completed_work">{{ row.item.completed_work }}</textarea></div><div class="field"><label for="task-{{ forloop.counter0 }}-next-step">下一步</label><textarea id="task-{{ forloop.counter0 }}-next-step" rows="2" name="task_{{ forloop.counter0 }}_next_step">{{ row.item.next_step }}</textarea></div></div><div class="field"><label for="task-{{ forloop.counter0 }}-current-note">当前说明</label><textarea id="task-{{ forloop.counter0 }}-current-note" rows="2" name="task_{{ forloop.counter0 }}_current_note">{{ row.item.current_note }}</textarea></div>
+                  </div>
+                </details>
+              {% empty %}<div class="empty">这份记录中没有识别到明确任务。</div>{% endfor %}
+            </div>
+            {% if draft.payload.risks or draft.payload.milestones %}<div class="section-head review-section-head secondary-section"><div><span class="section-kicker">补充信息</span><h2>风险与里程碑</h2></div></div>{% endif %}
+            {% for row in risk_rows %}<details class="review-item compact-item" data-review-row data-needs-attention="false"><summary class="review-item-head"><span class="item-number risk-mark">险</span><span><strong>{{ row.item.content }}</strong><small>{{ row.item.project_name|default:"尚未匹配项目" }}{% if row.item.owner_name %} · {{ row.item.owner_name }}{% endif %}</small></span></summary><div class="review-item-body"><div class="field-grid four-cols"><div class="field"><label for="risk-{{ forloop.counter0 }}-action">处理方式</label><select id="risk-{{ forloop.counter0 }}-action" name="risks_{{ forloop.counter0 }}_action"><option value="ignore" {% if row.action == "ignore" %}selected{% endif %}>暂不入库</option><option value="create" {% if row.action == "create" %}selected{% endif %}>确认创建</option></select></div><div class="field"><label for="risk-{{ forloop.counter0 }}-project">项目</label><select id="risk-{{ forloop.counter0 }}-project" name="risks_{{ forloop.counter0 }}_project"><option value="">选择项目</option>{% for p in projects %}<option value="{{ p.pk }}" {% if row.project_id == p.pk|stringformat:"s" %}selected{% endif %}>{{ p.name }}</option>{% endfor %}</select></div><div class="field"><label for="risk-{{ forloop.counter0 }}-owner">负责人</label><select id="risk-{{ forloop.counter0 }}-owner" name="risks_{{ forloop.counter0 }}_owner"><option value="">未指定</option>{% for p in people %}<option value="{{ p.pk }}" {% if row.owner_id == p.pk|stringformat:"s" %}selected{% endif %}>{{ p.name }}</option>{% endfor %}</select></div><div class="field"><label for="risk-{{ forloop.counter0 }}-due">跟进日期</label><input id="risk-{{ forloop.counter0 }}-due" type="{{ row.due_date.type }}" name="risks_{{ forloop.counter0 }}_due_date" value="{{ row.due_date.value }}" {% if row.due_date.type == "text" %}placeholder="请改为 YYYY-MM-DD"{% endif %}></div></div></div></details>{% endfor %}
+            {% for row in milestone_rows %}<details class="review-item compact-item" data-review-row data-needs-attention="false"><summary class="review-item-head"><span class="item-number">点</span><span><strong>{{ row.item.name }}</strong><small>{{ row.item.target_date|default:"日期待定" }}{% if row.item.description %} · {{ row.item.description }}{% endif %}</small></span></summary><div class="review-item-body"><div class="field-grid three-cols"><div class="field"><label for="milestone-{{ forloop.counter0 }}-action">处理方式</label><select id="milestone-{{ forloop.counter0 }}-action" name="milestones_{{ forloop.counter0 }}_action"><option value="ignore" {% if row.action == "ignore" %}selected{% endif %}>暂不入库</option><option value="create" {% if row.action == "create" %}selected{% endif %}>确认创建</option></select></div><div class="field"><label for="milestone-{{ forloop.counter0 }}-project">项目</label><select id="milestone-{{ forloop.counter0 }}-project" name="milestones_{{ forloop.counter0 }}_project"><option value="">选择项目</option>{% for p in projects %}<option value="{{ p.pk }}" {% if row.project_id == p.pk|stringformat:"s" %}selected{% endif %}>{{ p.name }}</option>{% endfor %}</select></div><div class="field"><label for="milestone-{{ forloop.counter0 }}-target">目标日期</label><input id="milestone-{{ forloop.counter0 }}-target" type="{{ row.target_date.type }}" name="milestones_{{ forloop.counter0 }}_target_date" value="{{ row.target_date.value }}" {% if row.target_date.type == "text" %}placeholder="请改为 YYYY-MM-DD"{% endif %}></div></div></div></details>{% endfor %}
+            {% if not is_confirmed %}<div class="sticky-actions"><div><strong>确认无误后入库</strong><small>任务仍可在任务中心继续修改</small></div><button class="button primary large" type="submit" data-submit-label="正在入库">确认并入库（新增 {{ review_counts.create }}，更新 {{ review_counts.update }}，忽略 {{ review_counts.ignore }}）</button></div>{% endif %}
+          </section>
+        </div>
       </fieldset>
     </form>
   </div>

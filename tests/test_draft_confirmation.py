@@ -113,3 +113,21 @@ def test_update_does_not_clear_existing_optional_details_with_empty_ai_values(dr
     assert existing.planned_start_date == date(2026, 8, 31)
     assert existing.due_date == date(2026, 9, 20)
     assert existing.current_note == "上一轮说明"
+
+
+@pytest.mark.django_db
+def test_missing_risk_decision_is_rejected_before_any_task_is_written(draft):
+    project = Project.objects.create(name="SKU改造")
+    payload = {
+        **draft.payload,
+        "risks": [{"content": "接口依赖未确认", "project_name": "SKU改造"}],
+    }
+
+    with pytest.raises(DraftConfirmationError, match="每条风险都必须选择处理方式"):
+        confirm_draft(
+            draft.id,
+            {"tasks": [{"action": "create", "project_id": project.id}], "risks": [], "milestones": []},
+            payload=payload,
+        )
+
+    assert Task.objects.count() == 0

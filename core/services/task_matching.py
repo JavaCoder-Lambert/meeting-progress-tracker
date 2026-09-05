@@ -23,7 +23,8 @@ def find_task_candidates(item: dict, queryset) -> list[TaskCandidate]:
     if not wanted:
         return []
     candidates = []
-    for task in queryset.select_related("project", "assignee"):
+    tasks = queryset.select_related("project", "assignee") if hasattr(queryset, "select_related") else queryset
+    for task in tasks:
         if item.get("project_name") and task.project.name != item["project_name"]:
             continue
         if item.get("assignee_name") and (not task.assignee or task.assignee.name != item["assignee_name"]):

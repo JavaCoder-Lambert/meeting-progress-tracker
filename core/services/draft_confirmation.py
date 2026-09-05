@@ -56,6 +56,12 @@ def confirm_draft(draft_id: int, decisions: dict, payload: dict | None = None) -
     task_decisions = decisions.get("tasks", [])
     if len(task_decisions) != len(parsed.tasks):
         raise DraftConfirmationError("每条任务都必须选择处理方式。")
+    risk_decisions = decisions.get("risks", [])
+    if len(risk_decisions) != len(parsed.risks):
+        raise DraftConfirmationError("每条风险都必须选择处理方式。")
+    milestone_decisions = decisions.get("milestones", [])
+    if len(milestone_decisions) != len(parsed.milestones):
+        raise DraftConfirmationError("每条里程碑都必须选择处理方式。")
     created = updated = 0
     task_by_title = {}
     for item, decision in zip(parsed.tasks, task_decisions, strict=True):
@@ -105,8 +111,7 @@ def confirm_draft(draft_id: int, decisions: dict, payload: dict | None = None) -
         )
         task_by_title[item.title] = task
     risk_count = 0
-    for index, item in enumerate(parsed.risks):
-        decision = (decisions.get("risks") or [{}] * len(parsed.risks))[index]
+    for item, decision in zip(parsed.risks, risk_decisions, strict=True):
         if decision.get("action", "ignore") == "ignore":
             continue
         project = _get_optional(Project, decision.get("project_id"), "项目")
@@ -120,8 +125,7 @@ def confirm_draft(draft_id: int, decisions: dict, payload: dict | None = None) -
         )
         risk.full_clean(); risk.save(); risk_count += 1
     milestone_count = 0
-    for index, item in enumerate(parsed.milestones):
-        decision = (decisions.get("milestones") or [{}] * len(parsed.milestones))[index]
+    for item, decision in zip(parsed.milestones, milestone_decisions, strict=True):
         if decision.get("action", "ignore") == "ignore":
             continue
         project = _get_optional(Project, decision.get("project_id"), "项目")
