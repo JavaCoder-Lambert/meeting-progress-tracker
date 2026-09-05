@@ -37,6 +37,32 @@ class TaskForm(forms.ModelForm):
         widgets = {field: forms.DateInput(attrs={"type": "date"}) for field in ("planned_start_date", "due_date", "acceptance_date")}
 
 
+class TaskProgressForm(forms.Form):
+    status = forms.ChoiceField(label="状态", choices=Task.Status.choices, required=False)
+    progress = forms.IntegerField(label="进度", min_value=0, max_value=100, required=False)
+    due_date = forms.DateField(label="截止日期", required=False, widget=forms.DateInput(attrs={"type": "date"}))
+    current_note = forms.CharField(label="当前说明", required=False, widget=forms.Textarea(attrs={"rows": 2}))
+    completed_work = forms.CharField(label="本次完成", required=False, widget=forms.Textarea(attrs={"rows": 2}))
+    next_step = forms.CharField(label="下一步", required=False, widget=forms.Textarea(attrs={"rows": 2}))
+
+    def __init__(self, *args, task=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        if task is not None:
+            self.initial.update({
+                "status": task.status,
+                "progress": task.progress,
+                "due_date": task.due_date,
+                "current_note": task.current_note,
+            })
+
+    def clean(self):
+        cleaned_data = super().clean()
+        for field in ("status", "progress", "due_date", "current_note"):
+            if field not in self.data and field in self.initial:
+                cleaned_data[field] = self.initial[field]
+        return cleaned_data
+
+
 class RiskForm(forms.ModelForm):
     class Meta:
         model = Risk

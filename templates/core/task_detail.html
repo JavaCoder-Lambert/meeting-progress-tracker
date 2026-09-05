@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}{{ task.title }}{% endblock %}
+{% block content %}
+  <div class="page">
+    <div class="page-head">
+      <div>
+        <a class="back-link" href="{% url 'task_list' %}">← 返回任务中心</a>
+        <span class="eyebrow">{{ task.project.name }} · {{ task.get_priority_display }}</span>
+        <h1>{{ task.title }}</h1>
+        <p class="muted">负责人：{{ task.assignee.name|default:"未指定" }} · 截止：{{ task.due_date|default:"未设置" }}</p>
+      </div>
+      <a class="button" href="{% url 'task_edit' task.pk %}">完整编辑</a>
+    </div>
+
+    <div class="grid two">
+      <section aria-labelledby="progress-update-title">
+        <div class="card">
+          <div class="section-head"><div><span class="section-kicker">主要操作</span><h2 id="progress-update-title">记录本次进展</h2></div></div>
+          <form method="post" action="{% url 'task_progress_update' task.pk %}" class="form-grid">
+            {% csrf_token %}
+            {% if progress_form.errors %}<div class="alert error" role="alert">请修正后再保存。本次进展未写入。</div>{% endif %}
+            {% for field in progress_form %}
+              <p>
+                <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+                {{ field.errors }}
+                {{ field }}
+              </p>
+            {% endfor %}
+            {% if progress_form.non_field_errors %}{{ progress_form.non_field_errors }}{% endif %}
+            <button class="button primary" type="submit">保存本次进展</button>
+          </form>
+        </div>
+
+        <section aria-labelledby="timeline-title">
+          <div class="section-head"><h2 id="timeline-title">进展时间线</h2></div>
+          <ol class="cards" aria-label="按时间倒序的进展记录">
+            {% for update in progress_updates %}
+              <li class="card">
+                <div class="row"><strong>{{ update.recorded_at|date:"Y-m-d H:i" }}</strong><span class="badge status-{{ update.new_status }}">{{ update.new_status_label }}</span></div>
+                <p class="muted">进度：{{ update.previous_progress|default_if_none:"—" }}% → {{ update.new_progress|default_if_none:"—" }}%</p>
+                {% if update.completed_work %}<p><strong>本次完成：</strong>{{ update.completed_work }}</p>{% endif %}
+                {% if update.next_step %}<p><strong>下一步：</strong>{{ update.next_step }}</p>{% endif %}
+                {% if update.meeting_note %}<small>来自会议：<a href="{% url 'meeting_detail' update.meeting_note.pk %}">{{ update.meeting_note.title }}</a></small>{% endif %}
+              </li>
+            {% empty %}
+              <li class="empty">还没有进展记录，先写下本次完成或下一步。</li>
+            {% endfor %}
+          </ol>
+        </section>
+      </section>
+
+      <aside>
+        <section class="card" aria-labelledby="task-summary-title">
+          <span class="section-kicker">任务摘要</span><h2 id="task-summary-title">当前状态</h2>
+          <p><span class="badge status-{{ task.status }}">{{ task.get_status_display }}</span>　{{ task.progress }}%</p>
+          <div class="progress" aria-label="任务进度 {{ task.progress }}%"><i style="width:{{ task.progress }}%"></i></div>
+          {% if task.current_note %}<p>{{ task.current_note }}</p>{% endif %}
+          {% if task.description %}<p class="muted">{{ task.description }}</p>{% endif %}
+        </section>
+
+        <section class="card" aria-labelledby="source-meeting-title">
+          <span class="section-kicker">来源会议</span><h2 id="source-meeting-title">关联记录</h2>
+          {% if task.source_meeting %}<a href="{% url 'meeting_detail' task.source_meeting.pk %}"><strong>{{ task.source_meeting.title }}</strong><small>{{ task.source_meeting.meeting_date }}</small></a>{% else %}<p class="muted">此任务不是从会议导入。</p>{% endif %}
+        </section>
+
+        <section class="card" aria-labelledby="related-risks-title">
+          <span class="section-kicker">关联风险</span><h2 id="related-risks-title">需要留意</h2>
+          {% for risk in related_risks %}<div><strong>{{ risk.get_risk_type_display }} · {{ risk.get_status_display }}</strong><p>{{ risk.content }}</p></div>{% empty %}<p class="muted">暂无关联风险。</p>{% endfor %}
+        </section>
+      </aside>
+    </div>
+  </div>
+{% endblock %}

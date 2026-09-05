@@ -8,7 +8,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
 
-from .forms import MeetingNoteForm, PersonForm, ProjectForm, TaskForm
+from .forms import MeetingNoteForm, PersonForm, ProjectForm, TaskForm, TaskProgressForm
 from .models import ImportDraft, MeetingNote, Person, Project, Task
 from .services.dashboard import dashboard_context
 from .services.draft_confirmation import DraftConfirmationError, confirm_draft
@@ -16,6 +16,7 @@ from .services.exports import build_csv_zip, build_json_export
 from .services.llm_client import LLMParseError, parse_meeting_note
 from .services.reports import build_weekly_report
 from .services.draft_review import build_draft_review
+from .services.progress_updates import record_task_progress
 
 
 def health(request):
@@ -154,6 +155,38 @@ def task_board(request):
     tasks = Task.objects.select_related("project", "assignee")
     columns = [(value, label, tasks.filter(status=value)) for value, label in Task.Status.choices]
     return render(request, "core/task_board.html", {"columns": columns})
+
+
+def _task_detail_context(task, progress_form=None):
+    progress_updates = list(task.progress_updates.select_related("meeting_note").order_by("-recorded_at", "-pk"))
+    status_labels = dict(Task.Status.choices)
+    for update in progress_updates:
+        update.new_status_label = status_labels.get(update.new_status, update.new_status or "未设置")
+    return {
+        "task": task,
+        "progress_form": progress_form or TaskProgressForm(task=task),
+        "related_risks": task.risks.select_related("owner").all(),
+        "progress_updates": progress_updates,
+    }
+
+
+@login_required
+def task_detail(request, pk):
+    task = get_object_or_404(Task.objects.select_related("project", "assignee", "source_meeting"), pk=pk)
+    return render(request, "core/task_detail.html", _task_detail_context(task))
+
+
+@login_required
+def task_progress_update(request, pk):
+    task = get_object_or_404(Task.objects.select_related("project", "assignee", "source_meeting"), pk=pk)
+    if request.method != "POST":
+        return redirect("task_detail", pk=task.pk)
+    form = TaskProgressForm(request.POST, task=task)
+    if not form.is_valid():
+        return render(request, "core/task_detail.html", _task_detail_context(task, form))
+    record_task_progress(task, form.cleaned_data)
+    messages.success(request, "已记录本次进展。")
+    return redirect("task_detail", pk=task.pk)
 
 
 @login_required

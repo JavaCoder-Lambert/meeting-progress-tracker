@@ -4,7 +4,9 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from core.models import ProgressUpdate, Project, Task
+from core.services.progress_updates import record_task_progress
 from core.services.reports import build_weekly_report
+from django.utils import timezone
 
 
 @pytest.mark.django_db
@@ -15,6 +17,19 @@ def test_weekly_report_uses_updates_in_selected_range():
     report = build_weekly_report(date(2026, 8, 31), date(2026, 9, 6))
     assert "接口完成" in report.markdown
     assert "金蝶" in report.markdown
+
+
+@pytest.mark.django_db
+def test_progress_update_service_entry_is_in_current_weekly_report():
+    project = Project.objects.create(name="仓配升级")
+    task = Task.objects.create(project=project, title="完成联调", status=Task.Status.IN_PROGRESS)
+
+    record_task_progress(task, {"completed_work": "已完成接口联调", "next_step": "安排验收"})
+
+    report = build_weekly_report(timezone.localdate(), timezone.localdate())
+    assert "仓配升级" in report.markdown
+    assert "完成联调：已完成接口联调" in report.markdown
+    assert "完成联调：安排验收" in report.markdown
 
 
 @pytest.mark.django_db
