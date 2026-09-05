@@ -144,6 +144,37 @@ test('auto parse consumes URL intent and submits only once, even with duplicate 
   assert.equal(new URL(app.window.location.href).searchParams.has('auto_parse'), false);
 });
 
+test('parse failure hides the previous draft link and restores retry', async () => {
+  const document = new Document();
+  const button = el('button', {'data-parse-button': ''}, el('span', {'data-button-label': ''}));
+  const form = el('form', {'data-parse-form': '', action: '/meetings/1/parse/'}, button);
+  const progress = el('div', {'data-parse-progress': ''}, ...['title', 'detail'].map(name => el('span', {[`data-progress-${name}`]: ''})), el('span', {'data-elapsed': ''}));
+  const link = el('a', {'data-draft-link': '', href: '/drafts/1/'});
+  const badge = el('span', {'data-note-status': ''});
+  document.body.append(form, progress, link, badge);
+  loadApp(document, {fetch: async () => ({ok: false, status: 422, headers: {get: () => 'application/json'},
+    json: async () => ({ok: false, message: '模型响应超时'})})});
+  form.requestSubmit();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(link.hidden, true);
+  assert.equal(button.disabled, false);
+  assert.equal(badge.textContent, '解析失败');
+  assert.equal(progress.querySelector('[data-progress-detail]').textContent, '模型响应超时');
+});
+
+test('URL auto_parse alone never submits without the server intent hook', () => {
+  const document = new Document();
+  const button = el('button', {'data-parse-button': ''}, el('span', {'data-button-label': ''}));
+  const form = el('form', {'data-parse-form': '', action: '/meetings/1/parse/'}, button);
+  const progress = el('div', {'data-parse-progress': ''}, ...['title', 'detail'].map(name => el('span', {[`data-progress-${name}`]: ''})), el('span', {'data-elapsed': ''}));
+  document.body.append(form, progress);
+  let calls = 0;
+  loadApp(document, {fetch: async () => { calls += 1; return new Promise(() => {}); }});
+  assert.equal(calls, 0);
+  form.requestSubmit();
+  assert.equal(calls, 1);
+});
+
 test('shortcuts do not hijack fields, composition, editable content or modifiers', () => {
   const document = new Document();
   const search = el('input', {'data-search-input': ''});

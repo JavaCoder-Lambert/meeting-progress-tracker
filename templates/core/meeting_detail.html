@@ -32,6 +32,10 @@
             <h2 id="parse-title">整理为项目进度</h2>
           </div>
         </div>
+        {% if note.parse_status == 'imported' %}
+          <p class="panel-intro">本次会议已确认入库，可查看当时的确认内容。</p>
+          {% if confirmed_draft %}<a class="draft-link" href="{% url 'draft_review' confirmed_draft.pk %}"><span><strong>查看已入库结果</strong><small>已确认记录 · 只读</small></span><b aria-hidden="true">→</b></a>{% endif %}
+        {% else %}
         <p class="panel-intro">AI 会提取负责人、任务进度、截止时间、风险和里程碑。结果先进入草稿，由你确认后再写入。</p>
 
         {% if note.parse_error %}
@@ -42,7 +46,7 @@
         {% endif %}
 
         {% if note.parse_status == 'success' and latest_draft and not latest_draft.confirmed_at %}
-          <a class="draft-link" href="{% url 'draft_review' latest_draft.pk %}">
+          <a class="draft-link" href="{% url 'draft_review' latest_draft.pk %}" data-draft-link>
             <span><strong>已有解析草稿</strong><small>继续检查并确认入库</small></span>
             <b aria-hidden="true">→</b>
           </a>
@@ -71,6 +75,7 @@
             <span class="elapsed" data-elapsed>已等待 0 秒</span>
           </div>
         </div>
+        {% endif %}
       </section>
     </div>
   </div>

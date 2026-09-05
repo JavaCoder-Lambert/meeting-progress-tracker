@@ -4,6 +4,7 @@ from core.models import Person, Project, Task
 
 from .llm_schema import normalize_date
 from .task_matching import find_task_candidates
+from .task_payload import task_review_values
 
 
 def _date_input(value, meeting_date):
@@ -106,6 +107,8 @@ def build_draft_review(draft, decisions=None) -> dict:
         action = decision.get("action", recommended_action)
         existing_id = str(decision.get("task_id") or (existing_task.pk if existing_task else ""))
         selected_task = open_tasks_by_id.get(int(existing_id)) if existing_id.isdigit() else None
+        if not draft.confirmed_at:
+            item = task_review_values(item, selected_task if action == "update" else None)
         task_rows.append({
             "item": item,
             "candidates": candidates,

@@ -8,7 +8,7 @@ from core.services.draft_confirmation import DraftAlreadyConfirmed, DraftConfirm
 
 @pytest.fixture
 def draft(db):
-    note = MeetingNote.objects.create(title="周会", meeting_date=date(2026, 9, 4), raw_text="原始记录")
+    note = MeetingNote.objects.create(title="周会", meeting_date=date(2026, 9, 4), raw_text="原始记录", parse_status="success")
     return ImportDraft.objects.create(meeting_note=note, payload={
         "summary": "", "uncertainties": [], "risks": [], "milestones": [],
         "tasks": [{"title": "发货仓库优先级逻辑调整", "project_name": "SKU改造", "assignee_name": "张川", "description": "", "planned_start_date": None, "due_date": "2026-09-09", "acceptance_date": "2026-09-16", "status": "in_progress", "priority": "normal", "progress": 50, "current_note": "开发中", "completed_work": "完成梳理", "next_step": "开发"}],

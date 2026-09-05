@@ -21,6 +21,7 @@
 
     <form method="post" action="{% url 'draft_confirm' draft.pk %}" {% if not is_confirmed %}data-submit-once data-review-form{% endif %}>
       {% csrf_token %}
+      {% if not is_confirmed %}<input type="hidden" name="review_baseline" value="{{ review_baseline }}">{% endif %}
       <fieldset class="review-fieldset" {% if is_confirmed %}disabled{% endif %}>
         <div class="review-grid">
           <aside class="source-panel sticky">

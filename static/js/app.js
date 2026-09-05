@@ -45,6 +45,8 @@ function setupParseForm() {
       progressDetail.textContent = "你可以在下一页核对任务、负责人和日期。";
       window.location.assign(data.redirect_url);
     } catch (error) {
+      const draftLink = document.querySelector("[data-draft-link]");
+      if (draftLink) draftLink.hidden = true;
       if (statusBadge) {
         statusBadge.className = "status-badge status-failed";
         statusBadge.textContent = "解析失败";

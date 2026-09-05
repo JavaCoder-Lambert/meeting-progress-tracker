@@ -5,6 +5,8 @@ from django.utils import timezone
 
 from core.models import ImportDraft, MeetingNote, Milestone, Person, ProgressUpdate, Project, Risk, Task
 from .llm_schema import ParsedMeeting, normalize_date
+from .task_payload import TASK_DEFAULTS, task_provided_fields
+from .progress_updates import sync_task_completion_timestamp
 
 
 class DraftConfirmationError(Exception):
@@ -51,8 +53,11 @@ def confirm_draft(draft_id: int, decisions: dict, payload: dict | None = None) -
         raise DraftAlreadyConfirmed("该会议已经入库过一份草稿，不能重复导入。")
     if meeting_drafts and meeting_drafts[0].pk != draft.pk:
         raise DraftConfirmationError("该草稿已被较新的解析结果替代，请使用最新草稿。")
+    if draft.meeting_note.parse_status != MeetingNote.ParseStatus.SUCCESS:
+        raise DraftConfirmationError("会议必须处于解析成功状态才能确认，请返回会议详情查看当前状态。")
 
-    parsed = ParsedMeeting.model_validate(payload if payload is not None else draft.payload)
+    source_payload = payload if payload is not None else draft.payload
+    parsed = ParsedMeeting.model_validate(source_payload)
     task_decisions = decisions.get("tasks", [])
     if len(task_decisions) != len(parsed.tasks):
         raise DraftConfirmationError("每条任务都必须选择处理方式。")
@@ -62,9 +67,16 @@ def confirm_draft(draft_id: int, decisions: dict, payload: dict | None = None) -
     milestone_decisions = decisions.get("milestones", [])
     if len(milestone_decisions) != len(parsed.milestones):
         raise DraftConfirmationError("每条里程碑都必须选择处理方式。")
+    for rows, allowed, label in (
+        (task_decisions, {"create", "update", "ignore"}, "任务"),
+        (risk_decisions, {"create", "ignore"}, "风险"),
+        (milestone_decisions, {"create", "ignore"}, "里程碑"),
+    ):
+        if any(row.get("action") not in allowed for row in rows):
+            raise DraftConfirmationError(f"{label}处理方式缺失或无效，请逐项选择。")
     created = updated = 0
     task_by_title = {}
-    for item, decision in zip(parsed.tasks, task_decisions, strict=True):
+    for item, source_item, decision in zip(parsed.tasks, source_payload.get("tasks", []), task_decisions, strict=True):
         action = decision.get("action")
         if action == "ignore":
             continue
@@ -95,14 +107,19 @@ def confirm_draft(draft_id: int, decisions: dict, payload: dict | None = None) -
                 "acceptance_date", "current_note",
             }
             for key, value in values.items():
+                if key in TASK_DEFAULTS and key not in task_provided_fields(source_item):
+                    continue
                 if key in preserve_when_empty and value in (None, ""):
                     continue
                 setattr(task, key, value)
             updated += 1
         else:
             raise DraftConfirmationError("任务处理方式无效。")
+        sync_task_completion_timestamp(task, previous_status)
         task.full_clean()
         task.save()
+        for field in TASK_DEFAULTS:
+            setattr(item, field, getattr(task, field))
         ProgressUpdate.objects.create(
             task=task, meeting_note=draft.meeting_note,
             previous_progress=previous_progress, new_progress=task.progress,
@@ -112,7 +129,7 @@ def confirm_draft(draft_id: int, decisions: dict, payload: dict | None = None) -
         task_by_title[item.title] = task
     risk_count = 0
     for item, decision in zip(parsed.risks, risk_decisions, strict=True):
-        if decision.get("action", "ignore") == "ignore":
+        if decision["action"] == "ignore":
             continue
         project = _get_optional(Project, decision.get("project_id"), "项目")
         if not project:
@@ -126,7 +143,7 @@ def confirm_draft(draft_id: int, decisions: dict, payload: dict | None = None) -
         risk.full_clean(); risk.save(); risk_count += 1
     milestone_count = 0
     for item, decision in zip(parsed.milestones, milestone_decisions, strict=True):
-        if decision.get("action", "ignore") == "ignore":
+        if decision["action"] == "ignore":
             continue
         project = _get_optional(Project, decision.get("project_id"), "项目")
         if not project:

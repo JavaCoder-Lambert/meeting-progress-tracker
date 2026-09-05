@@ -159,4 +159,8 @@ def parse_meeting_note(note: MeetingNote) -> ImportDraft:
     note.parse_status = MeetingNote.ParseStatus.SUCCESS
     note.parse_error = ""
     note.save(update_fields=["raw_llm_response", "parse_status", "parse_error", "updated_at"])
-    return ImportDraft.objects.create(meeting_note=note, payload=parsed.model_dump(mode="json"))
+    payload = parsed.model_dump(mode="json")
+    for task, item in zip(parsed.tasks, payload["tasks"], strict=True):
+        # Includes progress derived from an explicit done status by validation.
+        item["_provided_fields"] = sorted(task.model_fields_set)
+    return ImportDraft.objects.create(meeting_note=note, payload=payload)
