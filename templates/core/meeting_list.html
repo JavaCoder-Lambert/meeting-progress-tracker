@@ -3,8 +3,8 @@
 {% block content %}
 <div class="page">
   <div class="page-head">
-    <div><span class="eyebrow">会议收件箱</span><h1>会议记录</h1><p class="muted">从原文开始，逐步解析并确认入库。</p></div>
-    <a class="button primary" href="{% url 'meeting_create' %}">＋ 快速录入</a>
+    <div><span class="eyebrow">会议工作空间</span><h1>会议记录</h1><p class="muted">边开会边记录，或粘贴消息整理。未结束的会议可随时回来继续。</p></div>
+    <div class="row-actions"><a class="button" href="{% url 'meeting_create' %}">粘贴 / AI 整理</a><a class="button primary" href="{% url 'manual_meeting_create' %}">＋ 新建会议</a></div>
   </div>
   <nav class="toolbar" aria-label="会议筛选">
     <a class="button{% if state_filter != 'pending' %} primary{% endif %}" href="{% url 'meeting_list' %}">全部记录</a>
@@ -14,9 +14,11 @@
   <section aria-label="会议列表">
     {% for note in meeting_list %}
       <article class="data-row list-row">
-        <div><strong>{{ note.title }}</strong><span><time datetime="{{ note.meeting_date|date:"Y-m-d" }}">{{ note.meeting_date }}</time> · {{ note.get_parse_status_display }}</span></div>
+        <div><strong>{{ note.title }}</strong><span><time datetime="{{ note.meeting_date|date:"Y-m-d" }}">{{ note.meeting_date }}</time> · {% if note.manual_session %}手动记录 · {% if note.manual_session.confirmed_at %}已确认{% else %}暂存中{% endif %}{% else %}{{ note.get_parse_status_display }}{% endif %}</span></div>
         <div class="row-actions">
-          {% if note.has_confirmed %}
+          {% if note.manual_session %}
+            <a class="button" href="{% url 'manual_meeting_workspace' note.manual_session.pk %}">{% if note.manual_session.confirmed_at %}查看纪要{% else %}继续记录{% endif %}</a>
+          {% elif note.has_confirmed %}
             <a class="button" href="{% url 'meeting_detail' note.pk %}">查看结果</a>
           {% elif note.parse_status == 'success' and note.latest_draft_id %}
             <a class="button" href="{% url 'draft_review' note.latest_draft_id %}">{% if note.latest_review_saved_at %}继续暂存草稿{% else %}继续确认{% endif %}</a>
@@ -32,7 +34,7 @@
         </div>
       </article>
     {% empty %}
-      <div class="empty-state">还没有会议记录。粘贴一段钉钉消息或会议速记即可开始。</div>
+      <div class="empty-state">还没有会议记录。新建会议按人记录进展，或粘贴钉钉消息开始整理。</div>
     {% endfor %}
   </section>
   {% if page_obj.has_other_pages %}

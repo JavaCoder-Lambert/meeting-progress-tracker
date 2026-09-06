@@ -36,7 +36,8 @@
           <ol class="data-list" aria-label="按时间倒序的进展记录">
             {% for update in progress_updates %}
               <li class="surface">
-                <div class="row"><time datetime="{{ update.recorded_at|date:"c" }}">{{ update.recorded_at|date:"Y-m-d H:i" }}</time><span class="badge status-{{ update.new_status }}">{{ update.new_status_label }}</span></div>
+                <div class="row">{% if update.occurred_on %}<time datetime="{{ update.occurred_on|date:'Y-m-d' }}">{{ update.occurred_on|date:'Y-m-d' }}</time>{% else %}<time datetime="{{ update.recorded_at|date:"c" }}">{{ update.recorded_at|date:"Y-m-d H:i" }}</time>{% endif %}<span class="badge status-{{ update.new_status }}">{{ update.new_status_label }}</span></div>
+                {% if update.occurred_on %}<small class="muted">录入于 {{ update.recorded_at|date:'Y-m-d H:i' }}{% if not update.applied_to_task %} · 仅补记历史，未改动当前任务{% endif %}</small>{% endif %}
                 <p class="muted">进度：{{ update.previous_progress|default_if_none:"—" }}% → {{ update.new_progress|default_if_none:"—" }}%</p>
                 {% if update.completed_work %}<p><strong>本次完成：</strong>{{ update.completed_work }}</p>{% endif %}
                 {% if update.next_step %}<p><strong>下一步：</strong>{{ update.next_step }}</p>{% endif %}

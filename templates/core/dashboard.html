@@ -3,13 +3,13 @@
 <div class="page">
   <div class="hero">
     <div><span class="eyebrow">个人项目经理工作台</span><h1>今天需要推进什么？</h1><p class="muted">先处理需要确认、到期和长期没有更新的事项。</p></div>
-    <a class="button primary large" href="{% url 'meeting_create' %}">＋ 粘贴会议记录</a>
+    <div class="row-actions"><a class="button" href="{% url 'meeting_create' %}">粘贴会议记录</a><a class="button primary" href="{% url 'manual_meeting_create' %}">＋ 新建会议</a></div>
   </div>
 
   <section aria-labelledby="action-summary-title">
     <div class="section-head"><h2 id="action-summary-title">行动摘要</h2><a href="{% url 'meeting_list' %}">查看会议收件箱</a></div>
     <div class="summary-strip action-counts">
-      <a href="{% url 'meeting_list' %}?state=pending"><strong>{{ action_counts.pending_drafts }}</strong><span>待确认</span></a>
+      <a href="{% url 'meeting_list' %}?state=pending"><strong>{{ action_counts.pending_drafts }}</strong><span>待继续 / 确认</span></a>
       <a href="{% url 'task_list' %}?queue=overdue"><strong>{{ action_counts.overdue_tasks }}</strong><span>逾期</span></a>
       <a href="{% url 'task_list' %}?queue=due_soon"><strong>{{ action_counts.due_soon_tasks }}</strong><span>7 天内到期</span></a>
       <a href="{% url 'task_list' %}?queue=stale"><strong>{{ action_counts.stale_tasks }}</strong><span>长期未更新</span></a>
@@ -20,9 +20,12 @@
   <div class="grid two">
     <section aria-labelledby="draft-queue-title">
       <h2 id="draft-queue-title">待确认草稿</h2>
+      {% for session in manual_drafts %}
+        <a class="data-row list-row" href="{% url 'manual_meeting_workspace' session.pk %}"><div><strong>{{ session.meeting_note.title }}</strong><span>{{ session.meeting_note.meeting_date }} · 继续手动记录 · 已暂存</span></div><b aria-hidden="true">→</b></a>
+      {% endfor %}
       {% for draft in pending_drafts %}
         <a class="data-row list-row" href="{% url 'draft_review' draft.pk %}"><div><strong>{{ draft.meeting_note.title }}</strong><span><time datetime="{{ draft.meeting_note.meeting_date|date:"Y-m-d" }}">{{ draft.meeting_note.meeting_date }}</time> · 继续检查并确认入库</span></div><b aria-hidden="true">→</b></a>
-      {% empty %}<div class="empty-state">没有待确认草稿。录入会议后，解析结果会先在这里等待确认。</div>{% endfor %}
+      {% empty %}{% if not manual_drafts %}<div class="empty-state">没有待确认草稿。新建会议或粘贴记录即可开始。</div>{% endif %}{% endfor %}
     </section>
     <section aria-labelledby="overdue-queue-title">
       <div class="section-head"><h2 id="overdue-queue-title">优先处理：逾期</h2><a href="{% url 'task_list' %}?queue=overdue">查看全部</a></div>
@@ -61,7 +64,7 @@
     </section>
     <section aria-labelledby="meeting-title">
       <div class="section-head"><h2 id="meeting-title">最近会议</h2><a href="{% url 'meeting_list' %}">全部会议</a></div>
-      {% for note in meetings %}<a class="data-row list-row" href="{% url 'meeting_detail' note.pk %}"><div><strong>{{ note.title }}</strong><span>{{ note.get_parse_status_display }}</span></div><time datetime="{{ note.meeting_date|date:"Y-m-d" }}">{{ note.meeting_date }}</time></a>{% empty %}<div class="empty-state">尚未录入会议。</div>{% endfor %}
+      {% for note in meetings %}<a class="data-row list-row" href="{% url 'meeting_detail' note.pk %}"><div><strong>{{ note.title }}</strong><span>{% if note.manual_session %}手动记录 · {% if note.manual_session.confirmed_at %}已确认{% else %}暂存中{% endif %}{% else %}{{ note.get_parse_status_display }}{% endif %}</span></div><time datetime="{{ note.meeting_date|date:"Y-m-d" }}">{{ note.meeting_date }}</time></a>{% empty %}<div class="empty-state">尚未录入会议。</div>{% endfor %}
     </section>
   </div>
 </div>

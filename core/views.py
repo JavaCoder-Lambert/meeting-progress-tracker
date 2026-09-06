@@ -9,6 +9,7 @@ from django.core.exceptions import ValidationError
 from django.core.paginator import Paginator
 from django.db import transaction
 from django.db.models import Count, Exists, OuterRef, Prefetch, Q, Subquery
+from django.db.models.functions import Coalesce, TruncDate
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -58,7 +59,7 @@ def meeting_create(request):
 
 def _meeting_notes():
     drafts = ImportDraft.objects.filter(meeting_note_id=OuterRef("pk")).order_by("-created_at", "-pk")
-    return MeetingNote.objects.annotate(
+    return MeetingNote.objects.select_related("manual_session").annotate(
         latest_draft_id=Subquery(drafts.values("pk")[:1]),
         latest_review_saved_at=Subquery(drafts.values("review_saved_at")[:1]),
         confirmed_draft_id=Subquery(drafts.filter(confirmed_at__isnull=False).values("pk")[:1]),
@@ -90,6 +91,8 @@ def _parse_state(note):
 def meeting_detail(request, pk):
     recover_expired_jobs()
     note = get_object_or_404(_meeting_notes().defer("raw_llm_response"), pk=pk)
+    if hasattr(note, "manual_session"):
+        return redirect("manual_meeting_workspace", pk=note.manual_session.pk)
     state = _parse_state(note)
     capture = request.session.get("capture_saved", {})
     capture_token = ""
@@ -109,9 +112,14 @@ def meeting_detail(request, pk):
 
 @login_required
 def meeting_list(request):
-    notes = _meeting_notes().defer("raw_text", "raw_llm_response", "parse_error").order_by("-meeting_date", "-pk")
+    notes = _meeting_notes().defer("raw_text", "raw_llm_response", "parse_error",
+                                  "manual_session__state", "manual_session__minutes").order_by("-meeting_date", "-pk")
     if request.GET.get("state") == "pending":
-        notes = notes.filter(parse_status=MeetingNote.ParseStatus.SUCCESS, has_confirmed=False, latest_draft_id__isnull=False)
+        notes = notes.filter(
+            Q(manual_session__isnull=False, manual_session__confirmed_at__isnull=True) |
+            Q(manual_session__isnull=True, parse_status=MeetingNote.ParseStatus.SUCCESS,
+              has_confirmed=False, latest_draft_id__isnull=False)
+        )
     page = Paginator(notes, 20).get_page(request.GET.get("page"))
     return render(request, "core/meeting_list.html", {"meeting_list": page, "page_obj": page,
                   "state_filter": request.GET.get("state", "")})
@@ -123,6 +131,12 @@ def meeting_parse(request, pk):
     if request.method != "POST":
         return redirect("meeting_detail", pk=pk)
     wants_json = request.headers.get("X-Requested-With") == "XMLHttpRequest"
+    if hasattr(note, "manual_session"):
+        message = "这是手动会议，请在会议工作台直接记录和确认，无需 AI 解析。"
+        if wants_json:
+            return JsonResponse({"ok": False, "message": message}, status=422)
+        messages.info(request, message)
+        return redirect("manual_meeting_workspace", pk=note.manual_session.pk)
     try:
         enqueue_parse(note)
     except LLMParseError as exc:
@@ -293,7 +307,9 @@ def task_board(request):
 
 
 def _task_detail_context(task, progress_form=None):
-    progress_updates = list(task.progress_updates.select_related("meeting_note").order_by("-recorded_at", "-pk"))
+    progress_updates = list(task.progress_updates.select_related("meeting_note").annotate(
+        business_date=Coalesce("occurred_on", TruncDate("recorded_at"))
+    ).order_by("-business_date", "-recorded_at", "-pk"))
     status_labels = dict(Task.Status.choices)
     for update in progress_updates:
         update.new_status_label = status_labels.get(update.new_status, update.new_status or "未设置")

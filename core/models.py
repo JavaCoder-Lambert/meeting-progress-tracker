@@ -98,6 +98,14 @@ class MeetingNote(TimestampedModel):
         return self.title
 
 
+class MeetingSession(TimestampedModel):
+    meeting_note = models.OneToOneField(MeetingNote, on_delete=models.CASCADE, related_name="manual_session")
+    state = models.JSONField(default=dict)
+    version = models.PositiveIntegerField(default=0)
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+    minutes = models.TextField(blank=True)
+
+
 class ImportDraft(models.Model):
     meeting_note = models.ForeignKey(MeetingNote, on_delete=models.CASCADE, related_name="drafts")
     payload = models.JSONField("结构化草稿")
@@ -171,6 +179,9 @@ class ProgressUpdate(models.Model):
     completed_work = models.TextField(blank=True)
     next_step = models.TextField(blank=True)
     recorded_at = models.DateTimeField(default=timezone.now, db_index=True)
+    occurred_on = models.DateField(null=True, blank=True, db_index=True)
+    snapshot = models.JSONField(default=dict, blank=True)
+    applied_to_task = models.BooleanField(default=True)
 
     class Meta:
         ordering = ["-recorded_at"]

@@ -1,0 +1,18 @@
+{% extends "base.html" %}{% load static %}
+{% block title %}新建会议 · 进度台{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="{% static 'css/meeting-workspace.css' %}">
+<div class="page mw-create">
+  <header class="mw-intro"><span class="eyebrow">会议工作台 / 新建</span><h1>从一次对齐，<br>到下一步行动。</h1><p>按人员逐项记录进度。会中自动暂存，结束后统一核对确认。</p><ol class="mw-steps"><li><strong>准备会议</strong><span>确定主题与汇报范围</span></li><li><strong>逐项记录</strong><span>进度、风险和下一步</span></li><li><strong>核对确认</strong><span>更新项目，生成会议纪要</span></li></ol><a class="draft-reference-button" href="{% url 'meeting_create' %}">已有会议原文？使用粘贴 / AI 解析</a></header>
+  <form method="post" class="mw-create-form" data-meeting-create>{% csrf_token %}
+    <h2>会议信息</h2><p class="muted">先填写主题和日期，其余内容可以在会中补充。</p>
+    {{ form.non_field_errors }}
+    <div class="field"><label for="{{ form.title.id_for_label }}">会议主题</label>{{ form.title }}{{ form.title.errors }}</div>
+    <div class="mw-fields"><div class="field"><label for="{{ form.meeting_date.id_for_label }}">日期</label>{{ form.meeting_date }}{{ form.meeting_date.errors }}</div><div class="field"><label for="{{ form.meeting_time.id_for_label }}">开始时间 · 选填</label>{{ form.meeting_time }}{{ form.meeting_time.errors }}</div></div>
+    <div class="field"><label for="{{ form.agenda.id_for_label }}">议题 · 选填</label>{{ form.agenda }}{{ form.agenda.errors }}</div>
+    <details class="mw-details" {% if form.projects.errors or form.people.errors %}open{% endif %}><summary>设置关联项目与汇报人员 <span>选填</span></summary><div class="mw-fields"><div class="field"><label for="{{ form.projects.id_for_label }}">关联项目</label>{{ form.projects }}{{ form.projects.errors }}</div><div class="field"><label for="{{ form.people.id_for_label }}">汇报人员</label>{{ form.people }}{{ form.people.errors }}</div></div><small>可多选；也可以进入工作台后添加。</small></details>
+    <div class="mw-create-actions"><a href="{% url 'meeting_list' %}" class="button quiet">取消</a><button type="submit" class="button primary" data-submit-label="正在创建">进入会议工作台</button></div>
+  </form>
+</div>
+<script src="{% static 'js/meeting-workspace.js' %}" defer></script>
+{% endblock %}

@@ -1,0 +1,13 @@
+{% extends "base.html" %}{% load static %}
+{% block title %}核对会议 · {{ session_data.state.title }}{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="{% static 'css/meeting-workspace.css' %}">
+<div class="page mw-preview"><header class="mw-header"><div><span class="eyebrow">会议工作台 / 最后核对</span><h1>{{ session_data.state.title }}</h1><p class="muted">{{ session_data.state.meeting_date }} {{ session_data.state.meeting_time }} · 确认后更新项目记录并生成最终纪要</p></div><a class="button" href="{% url 'manual_meeting_workspace' meeting_session.pk %}">返回继续记录</a></header>
+{% if preview.historical %}<div class="mw-notice">这是一场过去日期的会议。已有任务仅补记历史进度，不覆盖当前状态；新增任务与风险仍会创建。</div>{% endif %}
+{% if preview.errors %}<div class="mw-alert" role="alert"><strong>请先补充以下内容</strong><ul>{% for error in preview.errors %}<li>{{ error }}</li>{% endfor %}</ul></div>{% endif %}
+<div class="mw-preview-counts"><span><strong>{{ preview.counts.tasks }}</strong> 任务记录</span><span><strong>{{ preview.counts.new_tasks }}</strong> 新增任务</span><span><strong>{{ preview.counts.risks }}</strong> 风险 / 待决策</span><span><strong>{{ preview.counts.notes }}</strong> 普通纪要</span></div>
+<section class="mw-preview-records" aria-label="即将确认的记录">{% for item in preview.items %}<article class="mw-preview-row"><div><span class="section-kicker">{% if item.kind == 'task' %}任务进度{% elif item.kind == 'new_task' %}新增任务{% elif item.kind == 'risk' %}风险{% elif item.kind == 'decision' %}待决策{% else %}普通纪要{% endif %}{% if item.historical %} · 历史补记{% endif %}</span><h2>{{ item.title|default:"未命名记录" }}</h2><p class="muted">{{ item.project_name|default:"未关联项目" }} · {{ item.person_name|default:"未指定人员" }}</p></div><p class="mw-preview-summary">{{ item.summary }}</p></article>{% empty %}<div class="mw-empty"><h2>尚无已记录事项</h2><p>返回工作台添加内容，或将任务标记为已询问。</p></div>{% endfor %}</section>
+<details class="mw-details"><summary>预览会议纪要 <span>确认后可复制</span></summary><pre class="mw-minutes">{{ preview.minutes }}</pre></details>
+<form method="post" action="{% url 'manual_meeting_confirm' meeting_session.pk %}" class="mw-confirm" data-meeting-confirm>{% csrf_token %}<input type="hidden" name="version" value="{{ session_data.version }}"><p>确认后本次会议只读。未标记「已询问」的任务不会产生变更。</p><button type="submit" class="button primary" {% if preview.errors or session_data.confirmed %}disabled{% endif %}>确认并生成纪要</button></form>
+</div><script src="{% static 'js/meeting-workspace.js' %}" defer></script>
+{% endblock %}

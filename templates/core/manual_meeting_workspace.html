@@ -1,0 +1,27 @@
+{% extends "base.html" %}{% load static %}
+{% block title %}{{ session_data.state.title }} · 会议工作台{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="{% static 'css/meeting-workspace.css' %}">
+<div class="page mw-page" data-meeting-workspace>
+  <header class="mw-header"><div><span class="eyebrow">会议工作台 / {% if session_data.confirmed %}已确认{% else %}会中记录{% endif %}</span><h1 data-meeting-title>{{ session_data.state.title }}</h1><p class="muted"><span data-meeting-date>{{ session_data.state.meeting_date }} {{ session_data.state.meeting_time }}</span> · 手动结构化记录</p></div><div class="mw-header-actions">{% if session_data.confirmed %}<a class="button" href="{% url 'meeting_list' %}">返回会议</a>{% else %}<button type="button" class="button" data-exit>暂存退出</button><button type="button" class="button primary" data-preview>结束并核对</button>{% endif %}</div></header>
+  {% if session_data.confirmed %}
+  <section class="mw-readonly"><div class="section-head"><div><h2>会议纪要</h2><p class="muted">会议已确认，以下为本次保存的最终记录。</p></div><button type="button" class="button" data-copy-target="meeting-minutes">复制纪要</button></div><pre id="meeting-minutes" class="mw-minutes">{{ session_data.minutes }}</pre></section>
+  {% else %}
+  <div class="mw-savebar"><span role="status" aria-live="polite" aria-atomic="true" data-save-status>正在加载工作台…</span><button type="button" class="draft-reference-button" data-save>立即暂存</button></div>
+  <div class="mw-alert" role="alert" data-save-error hidden></div>
+  <details class="mw-details mw-metadata"><summary>会议设置 <span>主题、日期、议题与范围</span></summary><div data-metadata></div></details>
+  <noscript><p class="mw-alert">会议工作台需要 JavaScript 才能记录和自动暂存。请启用后刷新页面。</p></noscript>
+  <div class="mw-layout" data-editor hidden>
+    <aside class="mw-sidebar" aria-label="汇报人员"><div class="section-head"><h2>汇报人员</h2><span class="mw-count" data-people-count></span></div><div class="mw-people" data-people></div><div class="mw-reference"><h3>补充项目 / 人员</h3><label for="reference-kind">新增类型</label><select id="reference-kind"><option value="person">人员</option><option value="project">项目</option></select><label for="reference-name">名称</label><input id="reference-name" maxlength="80" placeholder="输入名称" autocomplete="off"><button type="button" class="button" data-add-reference>创建并加入会议</button><p class="mw-reference-status" role="status" data-reference-status></p></div><p class="mw-sidebar-tip">切换人员会保留所有输入。填写任务进度后自动标记已询问，可取消勾选排除。已有任务负责人不会因汇报人变化而改变。</p></aside>
+    <section class="mw-main" aria-label="本次会议记录"><div class="section-head mw-section-head"><div><span class="section-kicker">当前汇报</span><h2 data-current-person>全部人员</h2></div><span class="badge" data-record-count>0 项已记录</span></div>
+      <details class="mw-catalog" open><summary>选择已有任务 <span>未询问的任务不会更新</span></summary><div class="mw-catalog-filters"><div class="field"><label for="task-search">搜索任务</label><input id="task-search" type="search" placeholder="任务名称 / 项目" data-search-input></div><div class="field"><label for="task-project">项目</label><select id="task-project"></select></div></div><div class="mw-catalog-options"><label><input type="checkbox" id="all-people-tasks"> 搜索其他人员的任务</label><label><input type="checkbox" id="completed-tasks"> 包含已完成</label></div><div class="mw-task-options" data-task-options></div></details>
+      <div class="mw-addbar" aria-label="添加记录"><span>新增记录</span><button type="button" data-add-kind="new_task">任务</button><button type="button" data-add-kind="risk">风险</button><button type="button" data-add-kind="decision">待决策</button><button type="button" data-add-kind="note">普通纪要</button></div>
+      <div class="mw-records" data-records></div><div class="mw-empty" data-empty><span class="section-kicker">准备好开始了</span><h3>从一项任务开始询问</h3><p>选择已有任务，或新增一条记录。每次编辑都会自动暂存到服务器。</p></div>
+    </section>
+  </div>{% endif %}
+  {% csrf_token %}
+</div>
+{{ session_data|json_script:"meeting-session-data" }}
+{{ catalog|json_script:"meeting-catalog-data" }}
+<script src="{% static 'js/meeting-workspace.js' %}" defer></script>
+{% endblock %}

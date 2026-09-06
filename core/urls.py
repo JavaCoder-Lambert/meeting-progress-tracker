@@ -1,5 +1,5 @@
 from django.urls import path
-from . import planning_views, views
+from . import manual_meeting_views, planning_views, views
 
 urlpatterns = [
     path("health/", views.health, name="health"),
@@ -8,6 +8,12 @@ urlpatterns = [
     path("tasks/<int:pk>/schedule/", planning_views.task_schedule, name="task_schedule"),
     path("meetings/", views.meeting_list, name="meeting_list"),
     path("meetings/new/", views.meeting_create, name="meeting_create"),
+    path("meetings/manual/new/", manual_meeting_views.manual_meeting_create, name="manual_meeting_create"),
+    path("meetings/manual/references/", manual_meeting_views.manual_meeting_reference, name="manual_meeting_reference"),
+    path("meetings/manual/<int:pk>/", manual_meeting_views.manual_meeting_workspace, name="manual_meeting_workspace"),
+    path("meetings/manual/<int:pk>/save/", manual_meeting_views.manual_meeting_save, name="manual_meeting_save"),
+    path("meetings/manual/<int:pk>/preview/", manual_meeting_views.manual_meeting_preview, name="manual_meeting_preview"),
+    path("meetings/manual/<int:pk>/confirm/", manual_meeting_views.manual_meeting_confirm, name="manual_meeting_confirm"),
     path("meetings/<int:pk>/", views.meeting_detail, name="meeting_detail"),
     path("meetings/<int:pk>/parse/", views.meeting_parse, name="meeting_parse"),
     path("meetings/<int:pk>/parse-status/", views.meeting_parse_status, name="meeting_parse_status"),

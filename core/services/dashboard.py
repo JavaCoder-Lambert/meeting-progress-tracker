@@ -3,7 +3,7 @@ from datetime import timedelta
 from django.db.models import Count, OuterRef, Q, Subquery
 from django.utils import timezone
 
-from core.models import ImportDraft, MeetingNote, Project, Risk, Task
+from core.models import ImportDraft, MeetingNote, MeetingSession, Project, Risk, Task
 
 
 def _task_order(queryset):
@@ -68,6 +68,9 @@ def dashboard_context():
         status__in=[Risk.Status.RESOLVED, Risk.Status.CLOSED]
     ).select_related("project", "owner")
     follow_up_groups = _follow_up_groups(overdue_tasks, due_soon_tasks, stale_tasks)
+    manual_drafts = MeetingSession.objects.filter(confirmed_at__isnull=True).select_related("meeting_note").defer(
+        "state", "minutes", "meeting_note__raw_text", "meeting_note__raw_llm_response", "meeting_note__parse_error"
+    ).order_by("-updated_at")
     return {
         "metrics": {
             "in_progress": tasks.filter(status=Task.Status.IN_PROGRESS).count(),
@@ -78,15 +81,18 @@ def dashboard_context():
         "projects": Project.objects.annotate(task_count=Count("tasks"))[:10],
         "due_tasks": due_soon_tasks[:10],
         "risks": open_risks[:8],
-        "meetings": MeetingNote.objects.all()[:6],
+        "meetings": MeetingNote.objects.select_related("manual_session").defer(
+            "raw_text", "raw_llm_response", "parse_error", "manual_session__state", "manual_session__minutes"
+        )[:6],
         "pending_drafts": pending_drafts,
+        "manual_drafts": manual_drafts[:6],
         "overdue_tasks": overdue_tasks,
         "due_soon_tasks": due_soon_tasks,
         "stale_tasks": stale_tasks,
         "open_risks": open_risks,
         "follow_up_groups": follow_up_groups,
         "action_counts": {
-            "pending_drafts": pending_drafts.count(),
+            "pending_drafts": pending_drafts.count() + manual_drafts.count(),
             "overdue_tasks": overdue_tasks.count(),
             "due_soon_tasks": due_soon_tasks.count(),
             "stale_tasks": stale_tasks.count(),

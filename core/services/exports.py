@@ -6,9 +6,9 @@ from datetime import date, datetime
 
 from django.forms.models import model_to_dict
 
-from core.models import MeetingNote, Milestone, Person, ProgressUpdate, Project, ProjectPhase, Risk, Task
+from core.models import MeetingNote, MeetingSession, Milestone, Person, ProgressUpdate, Project, ProjectPhase, Risk, Task
 
-MODELS = [Project, ProjectPhase, Person, MeetingNote, Task, ProgressUpdate, Risk, Milestone]
+MODELS = [Project, ProjectPhase, Person, MeetingNote, MeetingSession, Task, ProgressUpdate, Risk, Milestone]
 
 
 def _json_value(value):
