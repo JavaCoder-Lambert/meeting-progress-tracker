@@ -1,6 +1,8 @@
 {% extends "base.html" %}
+{% load static %}
 {% block title %}{{ note.title }}{% endblock %}
 {% block content %}
+  {% if capture_saved_token %}<span hidden data-capture-saved data-user-id="{{ request.user.pk }}" data-capture-token="{{ capture_saved_token }}"></span><script src="{% static 'js/capture-draft.js' %}" defer></script>{% endif %}
   <div class="page meeting-page">
     <div class="page-head meeting-head">
       <div>
@@ -47,7 +49,7 @@
 
         {% if note.parse_status == 'success' and latest_draft and not latest_draft.confirmed_at %}
           <a class="draft-link" href="{% url 'draft_review' latest_draft.pk %}" data-draft-link>
-            <span><strong>已有解析草稿</strong><small>继续检查并确认入库</small></span>
+            <span><strong>{% if note.latest_review_saved_at %}审阅修改已暂存{% else %}已有解析草稿{% endif %}</strong><small>{% if note.latest_review_saved_at %}上次暂存 {{ note.latest_review_saved_at|date:"n月j日 H:i" }} · 继续填写{% else %}继续检查并确认入库{% endif %}</small></span>
             <b aria-hidden="true">→</b>
           </a>
         {% endif %}

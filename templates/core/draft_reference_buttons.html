@@ -1,0 +1,7 @@
+{% if not is_confirmed and not review_blocked %}
+<div class="draft-reference-actions">
+  <span class="muted">缺少资料？</span>
+  <button class="draft-reference-button" type="submit" name="destination" value="project:{{ prefix }}_{{ index }}_project" formaction="{% url 'draft_save' draft.pk %}" formnovalidate data-draft-leave>新建项目并返回本项</button>
+  {% if owner %}<button class="draft-reference-button" type="submit" name="destination" value="person:{{ prefix }}_{{ index }}_{{ owner }}" formaction="{% url 'draft_save' draft.pk %}" formnovalidate data-draft-leave>新增人员并返回本项</button>{% endif %}
+</div>
+{% endif %}

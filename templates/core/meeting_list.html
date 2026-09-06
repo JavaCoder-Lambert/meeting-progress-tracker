@@ -19,7 +19,7 @@
           {% if note.has_confirmed %}
             <a class="button" href="{% url 'meeting_detail' note.pk %}">查看结果</a>
           {% elif note.parse_status == 'success' and note.latest_draft_id %}
-            <a class="button" href="{% url 'draft_review' note.latest_draft_id %}">继续确认</a>
+            <a class="button" href="{% url 'draft_review' note.latest_draft_id %}">{% if note.latest_review_saved_at %}继续暂存草稿{% else %}继续确认{% endif %}</a>
           {% elif note.parse_status == 'not_parsed' %}
             <form method="post" action="{% url 'meeting_parse' note.pk %}">{% csrf_token %}<button class="button" type="submit">开始解析</button></form>
           {% elif note.parse_status == 'failed' %}

@@ -1,5 +1,6 @@
-from copy import deepcopy
 from datetime import date, timedelta
+from urllib.parse import urlencode
+import re
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
@@ -12,7 +13,7 @@ from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
-from django.views.decorators.http import require_GET
+from django.views.decorators.http import require_GET, require_POST
 
 from .forms import MeetingNoteForm, PersonForm, ProjectForm, TaskForm, TaskProgressForm
 from .models import ImportDraft, MeetingNote, ParseJob, Person, Project, Task
@@ -23,6 +24,8 @@ from .services.llm_client import LLMParseError
 from .services.parse_jobs import enqueue_parse, recover_expired_jobs
 from .services.reports import build_weekly_report
 from .services.draft_review import build_draft_review
+from .services.draft_stash import (ReviewConflict, check_editable, check_review_version,
+    persist_review, read_review_submission, reference_target, review_snapshot)
 from .services.progress_updates import record_task_progress, sync_task_completion_timestamp
 from .services.task_payload import TASK_DEFAULTS, task_provided_fields
 
@@ -41,6 +44,9 @@ def meeting_create(request):
     form = MeetingNoteForm(request.POST or None)
     if request.method == "POST" and form.is_valid():
         note = form.save()
+        capture_token = request.POST.get("capture_draft_token", "")
+        if re.fullmatch(r"[A-Za-z0-9_-]{1,100}", capture_token):
+            request.session["capture_saved"] = {"note_id": note.pk, "user_id": request.user.pk, "token": capture_token}
         if form.cleaned_data.get("intent") == "parse":
             try:
                 enqueue_parse(note)
@@ -54,6 +60,7 @@ def _meeting_notes():
     drafts = ImportDraft.objects.filter(meeting_note_id=OuterRef("pk")).order_by("-created_at", "-pk")
     return MeetingNote.objects.annotate(
         latest_draft_id=Subquery(drafts.values("pk")[:1]),
+        latest_review_saved_at=Subquery(drafts.values("review_saved_at")[:1]),
         confirmed_draft_id=Subquery(drafts.filter(confirmed_at__isnull=False).values("pk")[:1]),
         has_confirmed=Exists(drafts.filter(confirmed_at__isnull=False)),
     )
@@ -84,8 +91,14 @@ def meeting_detail(request, pk):
     recover_expired_jobs()
     note = get_object_or_404(_meeting_notes().defer("raw_llm_response"), pk=pk)
     state = _parse_state(note)
+    capture = request.session.get("capture_saved", {})
+    capture_token = ""
+    if capture.get("note_id") == pk and capture.get("user_id") == request.user.pk:
+        capture_token = capture.get("token", "")
+        request.session.pop("capture_saved", None)
     return render(request, "core/meeting_detail.html", {
         "note": note,
+        "capture_saved_token": capture_token,
         "latest_draft": ImportDraft.objects.only("pk", "confirmed_at").filter(pk=note.latest_draft_id).first(),
         "confirmed_draft": ImportDraft.objects.only("pk", "confirmed_at").filter(pk=note.confirmed_draft_id).first(),
         "auto_parse": False,
@@ -132,8 +145,10 @@ def meeting_parse_status(request, pk):
 
 
 def _draft_context(draft, error="", decisions=None):
-    context = build_draft_review(draft, decisions=decisions)
-    baseline = {"draft_id": draft.pk, "tasks": [
+    if decisions is None:
+        draft, decisions = review_snapshot(draft)
+    context = build_draft_review(draft, decisions=decisions, preserve_values=bool(decisions))
+    baseline = {"draft_id": draft.pk, "version": draft.review_version, "tasks": [
         {"values": {field: row["item"].get(field) for field in TASK_DEFAULTS},
          "provided": sorted(task_provided_fields(item))}
         for item, row in zip(draft.payload.get("tasks", []), context["task_rows"], strict=True)
@@ -151,79 +166,84 @@ def _draft_context(draft, error="", decisions=None):
 @login_required
 def draft_review(request, pk):
     draft = get_object_or_404(ImportDraft.objects.select_related("meeting_note"), pk=pk)
-    return render(request, "core/draft_review.html", _draft_context(draft))
+    context = _draft_context(draft)
+    focus = request.GET.get("focus", "")
+    if focus.isdecimal() and len(focus) < 6 and int(focus) < len(context["task_rows"]):
+        context["task_rows"][int(focus)]["focused"] = True
+    return render(request, "core/draft_review.html", context)
+
+
+def _blocked_review_response(request, draft, error, status):
+    try:
+        payload, decisions = read_review_submission(draft, request.POST)
+    except signing.BadSignature as exc:
+        return HttpResponse(str(exc), status=400)
+    draft.payload = payload
+    context = _draft_context(draft, str(error), decisions=decisions)
+    context["review_blocked"] = True
+    context["is_confirmed"] = False  # Display the rejected submission, not an import record.
+    return render(request, "core/draft_review.html", context, status=status)
 
 
 @login_required
+@require_POST
+@transaction.atomic
+def draft_save(request, pk):
+    draft = get_object_or_404(ImportDraft.objects.select_for_update().select_related("meeting_note"), pk=pk)
+    wants_json = request.headers.get("X-Requested-With") == "XMLHttpRequest"
+    try:
+        check_editable(draft)
+        check_review_version(draft, request.POST.get("review_version"))
+        destination = request.POST.get("destination", "stay")
+        target = reference_target(draft, destination) if destination != "stay" else None
+        payload, decisions = read_review_submission(draft, request.POST)
+    except (ReviewConflict, ValueError, signing.BadSignature) as exc:
+        status = 409 if isinstance(exc, ReviewConflict) else 400
+        if wants_json:
+            return JsonResponse({"ok": False, "message": str(exc)}, status=status)
+        if isinstance(exc, ReviewConflict):
+            return _blocked_review_response(request, draft, exc, status)
+        return HttpResponse(str(exc), status=status)
+    persist_review(draft, payload, decisions)
+    if wants_json:
+        return JsonResponse({"ok": True, "version": draft.review_version, "saved_at": draft.review_saved_at.isoformat()})
+    if target:
+        token = signing.dumps({**target, "draft_id": draft.pk, "version": draft.review_version}, salt="review-return")
+        url = reverse("project_create" if target["kind"] == "project" else "person_create")
+        return redirect(url + "?" + urlencode({"review": token}))
+    messages.success(request, "审阅修改已暂存到服务器，尚未写入正式任务。")
+    return redirect("draft_review", pk=pk)
+
+
+@login_required
+@transaction.atomic
 def draft_confirm(request, pk):
-    draft = get_object_or_404(ImportDraft.objects.select_related("meeting_note"), pk=pk)
+    draft = get_object_or_404(ImportDraft.objects.select_for_update().select_related("meeting_note"), pk=pk)
     if request.method != "POST":
         return redirect("draft_review", pk=pk)
     if draft.confirmed_at:
-        return render(
-            request,
-            "core/draft_review.html",
-            _draft_context(draft, "该草稿已经入库，内容只读，不能再次提交。"),
-        )
-    payload = deepcopy(draft.payload)
-    review_rows = build_draft_review(draft)["task_rows"]
-    signed_rows = None
-    if request.POST.get("review_baseline"):
-        try:
-            baseline = signing.loads(request.POST["review_baseline"], salt="draft-review")
-            if baseline["draft_id"] != draft.pk or len(baseline["tasks"]) != len(review_rows):
-                raise signing.BadSignature("草稿不匹配")
-            signed_rows = baseline["tasks"]
-        except signing.BadSignature:
-            return HttpResponse("审阅表单已失效，请重新打开草稿。", status=400)
-    decisions = {"tasks": [], "risks": [], "milestones": []}
-    for index, item in enumerate(payload.get("tasks", [])):
-        edited = item.copy()
-        provided = task_provided_fields(item)
-        baseline = review_rows[index]["item"]
-        if signed_rows is not None:
-            # Compare with the values actually rendered, including an error redisplay.
-            # Preserved values from another selected task must not become user edits.
-            baseline = {**baseline, **signed_rows[index]["values"]}
-            provided.update(signed_rows[index]["provided"])
-        for field in ("title", "description", "status", "priority", "current_note", "completed_work", "next_step", "planned_start_date", "due_date", "acceptance_date"):
-            if f"task_{index}_{field}" in request.POST:
-                value = request.POST.get(f"task_{index}_{field}", "")
-                edited[field] = value or None if field.endswith("_date") else value
-                if edited[field] != baseline.get(field):
-                    provided.add(field)
-        if f"task_{index}_progress" in request.POST:
-            try: edited["progress"] = int(request.POST[f"task_{index}_progress"])
-            except ValueError: edited["progress"] = -1
-            if edited["progress"] != baseline.get("progress"):
-                provided.add("progress")
-        edited["_provided_fields"] = sorted(provided)
-        payload["tasks"][index] = edited
-        decisions["tasks"].append({
-            "action": request.POST.get(f"task_{index}_action"),
-            "project_id": request.POST.get(f"task_{index}_project") or None,
-            "assignee_id": request.POST.get(f"task_{index}_assignee") or None,
-            "task_id": request.POST.get(f"task_{index}_existing") or None,
-        })
-    for kind in ("risks", "milestones"):
-        for index, item in enumerate(payload.get(kind, [])):
-            edited = item.copy()
-            date_field = "due_date" if kind == "risks" else "target_date"
-            posted_date = f"{kind}_{index}_{date_field}"
-            if posted_date in request.POST:
-                edited[date_field] = request.POST.get(posted_date) or None
-            payload[kind][index] = edited
-            row = {"action": request.POST.get(f"{kind}_{index}_action"), "project_id": request.POST.get(f"{kind}_{index}_project") or None}
-            if kind == "risks": row["owner_id"] = request.POST.get(f"risks_{index}_owner") or None
-            decisions[kind].append(row)
+        return _blocked_review_response(request, draft, "该草稿已经入库，不能再次提交；以下仅保留本次未写入的内容。", 200)
+    try:
+        payload, decisions = read_review_submission(draft, request.POST)
+        signed_version = signing.loads(request.POST["review_baseline"], salt="draft-review").get("version", 0) if request.POST.get("review_baseline") else 0
+        check_review_version(draft, request.POST.get("review_version", signed_version))
+    except ReviewConflict as exc:
+        return _blocked_review_response(request, draft, exc, 409)
+    except signing.BadSignature as exc:
+        return HttpResponse(str(exc), status=400)
     try:
         result = confirm_draft(draft.pk, decisions, payload=payload)
     except (DraftConfirmationError, ValueError) as exc:
-        draft.payload = payload
+        try:
+            check_editable(draft)
+        except ReviewConflict:
+            return _blocked_review_response(request, draft, exc, 200)
+        else:
+            persist_review(draft, payload, decisions)
         return render(
             request,
             "core/draft_review.html",
-            _draft_context(draft, f"请修正：{exc}", decisions=decisions),
+            _draft_context(draft, f"请修正：{exc}"),
             status=200,
         )
     messages.success(request, f"已入库：新建 {result.created_tasks} 个任务，更新 {result.updated_tasks} 个任务。")
@@ -337,10 +357,42 @@ def task_edit(request, pk=None):
 
 
 def _model_form_view(request, form_class, instance, title, redirect_name):
-    form = form_class(request.POST or None, instance=instance)
+    return_context = None
+    kind = "project" if form_class == ProjectForm else "person"
+    token = request.GET.get("review", "") if instance is None else ""
+    if token:
+        try:
+            return_context = signing.loads(token, salt="review-return")
+            if return_context["kind"] != kind:
+                raise signing.BadSignature
+            get_object_or_404(ImportDraft, pk=return_context["draft_id"])
+        except (signing.BadSignature, KeyError, TypeError):
+            return HttpResponse("返回草稿的链接无效，请从草稿页面重新新建。", status=400)
+    form = form_class(request.POST or None, instance=instance, initial={"name": return_context["name"]} if return_context else None)
     if request.method == "POST" and form.is_valid():
-        form.save(); return redirect(redirect_name)
-    return render(request, "core/form_page.html", {"form": form, "title": title})
+        with transaction.atomic():
+            created = form.save()
+            if return_context:
+                draft = get_object_or_404(ImportDraft.objects.select_for_update().select_related("meeting_note"), pk=return_context["draft_id"])
+                try:
+                    check_editable(draft)
+                    check_review_version(draft, return_context["version"])
+                except ReviewConflict:
+                    messages.warning(request, "资料已创建；草稿已在其他页面更改，未覆盖新内容，请手动选择刚创建的资料。")
+                else:
+                    if return_context["group"]:
+                        state = draft.review_state
+                        state["decisions"][return_context["group"]][return_context["index"]][return_context["key"]] = str(created.pk)
+                        persist_review(draft, state["payload"], state["decisions"])
+                    messages.success(request, "已创建并返回草稿，之前的修改均已保留。")
+                url = reverse("draft_review", args=[draft.pk])
+                if return_context["group"] == "tasks":
+                    index = return_context["index"]
+                    url += f"?focus={index}#review-task-{index}"
+                return redirect(url)
+        return redirect(redirect_name)
+    return render(request, "core/form_page.html", {"form": form, "title": title,
+        "return_draft_id": return_context["draft_id"] if return_context else None})
 
 
 @login_required

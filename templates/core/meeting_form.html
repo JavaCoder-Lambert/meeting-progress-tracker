@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load static %}
 {% block title %}快速记录{% endblock %}
 {% block content %}
   <div class="page capture-page">
@@ -14,9 +15,16 @@
         </ul>
       </header>
 
-      <form method="post" class="capture-form" data-submit-once>
+      <form method="post" class="capture-form" data-submit-once data-capture-draft data-user-id="{{ request.user.pk }}" data-bound="{{ form.is_bound|yesno:'true,false' }}" data-default-date="{% now 'Y-m-d' %}">
         {% csrf_token %}
+        <input type="hidden" name="capture_draft_token" value="">
         {% if form.non_field_errors %}<div class="inline-feedback error">{{ form.non_field_errors }}</div>{% endif %}
+        <div class="capture-draft-notice">
+          <p role="status" aria-live="polite" aria-atomic="true" data-capture-status>开始输入后会自动暂存到此浏览器。</p>
+          <p>仅保存在当前浏览器，不会同步到其他设备；清除浏览器数据也会删除暂存。正式保存后才会创建会议。</p>
+          <button class="draft-reference-button" type="button" data-capture-clear hidden>清空输入和暂存</button>
+          <noscript><p>未启用 JavaScript，无法自动暂存。请保存会议后再离开页面。</p></noscript>
+        </div>
         <div class="field-row">
           <div class="field field-grow">
             <label for="{{ form.title.id_for_label }}">会议标题</label>
@@ -38,11 +46,12 @@
           {{ form.raw_text.errors }}
         </div>
         <div class="form-actions">
-          <span>保存后会进入会议详情；开始解析会在支持的浏览器中自动准备，无 JavaScript 时可在详情页点击解析。</span>
+          <span>保存后进入会议详情；选择开始解析会加入后台队列，离开页面后仍会继续。</span>
           <button class="button primary large" type="submit" name="intent" value="parse" data-submit-label="正在保存">保存并开始解析</button>
           <button class="button" type="submit" name="intent" value="save">仅保存</button>
         </div>
       </form>
     </div>
   </div>
+  <script src="{% static 'js/capture-draft.js' %}" defer></script>
 {% endblock %}

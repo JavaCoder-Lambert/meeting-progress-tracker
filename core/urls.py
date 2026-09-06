@@ -12,6 +12,7 @@ urlpatterns = [
     path("meetings/<int:pk>/parse/", views.meeting_parse, name="meeting_parse"),
     path("meetings/<int:pk>/parse-status/", views.meeting_parse_status, name="meeting_parse_status"),
     path("drafts/<int:pk>/", views.draft_review, name="draft_review"),
+    path("drafts/<int:pk>/save/", views.draft_save, name="draft_save"),
     path("drafts/<int:pk>/confirm/", views.draft_confirm, name="draft_confirm"),
     path("tasks/", views.task_list, name="task_list"),
     path("tasks/board/", views.task_board, name="task_board"),

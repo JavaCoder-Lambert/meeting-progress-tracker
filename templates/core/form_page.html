@@ -1,1 +1,13 @@
-{% extends "base.html" %}{% block title %}{{ title }}{% endblock %}{% block content %}<div class="page narrow"><h1>{{ title }}</h1><form method="post" class="surface form-grid">{% csrf_token %}{{ form.as_p }}<button class="button primary" type="submit">保存</button></form></div>{% endblock %}
+{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block content %}
+<div class="page narrow">
+  {% if return_draft_id %}<a class="back-link" href="{% url 'draft_review' return_draft_id %}">返回审阅草稿</a>{% endif %}
+  <h1>{{ title }}</h1>
+  {% if return_draft_id %}<p class="muted">审阅内容已暂存，保存后会回到原草稿，继续刚才的填写。</p>{% endif %}
+  <form method="post" class="surface form-grid">
+    {% csrf_token %}{{ form.as_p }}
+    <div class="form-actions"><button class="button primary" type="submit">{% if return_draft_id %}保存并返回草稿{% else %}保存{% endif %}</button>{% if return_draft_id %}<a class="button" href="{% url 'draft_review' return_draft_id %}">暂不新建，返回草稿</a>{% endif %}</div>
+  </form>
+</div>
+{% endblock %}

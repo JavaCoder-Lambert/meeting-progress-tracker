@@ -103,6 +103,9 @@ class ImportDraft(models.Model):
     payload = models.JSONField("结构化草稿")
     created_at = models.DateTimeField(auto_now_add=True)
     confirmed_at = models.DateTimeField(null=True, blank=True)
+    review_state = models.JSONField("审阅暂存", default=dict, blank=True)
+    review_saved_at = models.DateTimeField("暂存时间", null=True, blank=True)
+    review_version = models.PositiveIntegerField("暂存版本", default=0)
 
     class Meta:
         ordering = ["-created_at"]

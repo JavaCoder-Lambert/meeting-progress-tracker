@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from django.db.models import Q
+
 from core.models import Person, Project, Task
 
 from .llm_schema import normalize_date
-from .task_matching import find_task_candidates
+from .task_matching import TaskCandidate, find_task_candidates
 from .task_payload import task_review_values
 
 
@@ -83,16 +85,23 @@ def _task_recommendation(item, project, person, candidates, candidate_tasks, mee
     return "create", reasons, None
 
 
-def build_draft_review(draft, decisions=None) -> dict:
+def build_draft_review(draft, decisions=None, preserve_values=False) -> dict:
     """Prepare compact, safe defaults for rendering an import draft review."""
     payload = draft.payload
     decisions = decisions or {}
     projects = list(Project.objects.all())
-    people = list(Person.objects.filter(is_active=True))
+    selected_people = {str(row.get(key, "")) for group, key in (("tasks", "assignee_id"), ("risks", "owner_id")) for row in decisions.get(group, [])}
+    selected_people = {int(pk) for pk in selected_people if pk.isdecimal() and len(pk) < 12}
+    people = list(Person.objects.filter(Q(is_active=True) | Q(pk__in=selected_people)))
     project_by_name = {item.name: item for item in projects}
     person_by_name = {item.name: item for item in people}
     open_tasks = list(Task.objects.exclude(status=Task.Status.DONE).select_related("project", "assignee"))
     open_tasks_by_id = {task.pk: task for task in open_tasks}
+    selected_ids = {str(row.get("task_id", "")) for row in decisions.get("tasks", [])}
+    selected_ids = {int(pk) for pk in selected_ids if pk.isdecimal() and len(pk) < 12}
+    missing_ids = selected_ids.difference(open_tasks_by_id)
+    if missing_ids:
+        open_tasks_by_id.update({task.pk: task for task in Task.objects.filter(pk__in=missing_ids).select_related("project", "assignee")})
 
     task_decisions = decisions.get("tasks", [])
     task_rows = []
@@ -105,9 +114,11 @@ def build_draft_review(draft, decisions=None) -> dict:
             item, project, person, candidates, open_tasks_by_id, draft.meeting_note.meeting_date
         )
         action = decision.get("action", recommended_action)
-        existing_id = str(decision.get("task_id") or (existing_task.pk if existing_task else ""))
-        selected_task = open_tasks_by_id.get(int(existing_id)) if existing_id.isdigit() else None
-        if not draft.confirmed_at:
+        existing_id = str(decision.get("task_id") or "") if "task_id" in decision else str(existing_task.pk if existing_task else "")
+        selected_task = open_tasks_by_id.get(int(existing_id)) if existing_id.isdecimal() and len(existing_id) < 12 else None
+        if selected_task and not any(candidate.task_id == selected_task.pk for candidate in candidates):
+            candidates.append(TaskCandidate(selected_task.pk, selected_task.title, 0))
+        if not draft.confirmed_at and not preserve_values:
             item = task_review_values(item, selected_task if action == "update" else None)
         task_rows.append({
             "item": item,
