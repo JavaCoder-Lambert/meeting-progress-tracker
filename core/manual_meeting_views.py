@@ -13,7 +13,8 @@ from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_GET, require_POST
 
 from .manual_meeting_forms import ManualMeetingForm
-from .models import MeetingSession, Person, Project, Task
+from .models import MeetingSession, Person, Project, ProjectPhase, Task
+from .services.manual_meeting_continuation import continuation_initial, continuation_items, continuation_tasks, meeting_items
 from .services.manual_meetings import (
     ManualMeetingError, confirm_session, create_session, preview_session,
     save_session, serialize_session, task_option,
@@ -51,16 +52,40 @@ def _error_response(error):
 
 @login_required
 @never_cache
-def manual_meeting_create(request):
-    form = ManualMeetingForm(request.POST if request.method == "POST" else None)
+def manual_meeting_create(request, pk=None):
+    source = get_object_or_404(MeetingSession.objects.select_related("meeting_note"), pk=pk,
+                              confirmed_at__isnull=False) if pk else None
+    project_id = request.GET.get("project", "")
+    project = Project.objects.exclude(status=Project.Status.ARCHIVED).filter(pk=project_id).first() if (
+        not source and project_id.isdecimal() and len(project_id) < 12) else None
+    project_tasks = project.tasks.exclude(status=Task.Status.DONE).select_related("project", "assignee") if project else Task.objects.none()
+    initial = continuation_initial(source) if source else None
+    if project:
+        initial = {"title": f"{project.name} · 项目会议", "projects": [project.pk],
+                   "people": list(project_tasks.filter(assignee__is_active=True).order_by("assignee_id")
+                                  .values_list("assignee_id", flat=True).distinct())}
+    form = ManualMeetingForm(request.POST if request.method == "POST" else None,
+                             initial=initial)
     if request.method == "POST" and form.is_valid():
         try:
-            session = create_session(form.meeting_state())
+            state = form.meeting_state()
+            if source:
+                state["items"] = continuation_items(source)
+            elif project and project.pk in state["project_ids"] and request.POST.get("include_project_tasks") == "on":
+                state["items"] = meeting_items(project_tasks)
+            session = create_session(state)
         except ManualMeetingError as exc:
             form.add_error(None, str(exc))
         else:
             return redirect("manual_meeting_workspace", pk=session.pk)
-    return render(request, "core/manual_meeting_form.html", {"form": form})
+    return render(request, "core/manual_meeting_form.html", {
+        "form": form, "source_session": source,
+        "source_project": project, "project_task_count": project_tasks.count() if project else 0,
+        "include_project_tasks": request.method != "POST" or request.POST.get("include_project_tasks") == "on",
+        "continuation_count": continuation_tasks(source).count() if source else 0,
+        "recent_sessions": MeetingSession.objects.filter(confirmed_at__isnull=False).select_related("meeting_note")
+            .order_by("-confirmed_at", "-pk")[:5] if not source else [],
+    })
 
 
 @login_required
@@ -68,10 +93,11 @@ def manual_meeting_create(request):
 @never_cache
 def manual_meeting_workspace(request, pk):
     session = get_object_or_404(MeetingSession.objects.select_related("meeting_note"), pk=pk)
-    catalog = {"projects": [], "people": [], "tasks": [], "statuses": []}
+    catalog = {"projects": [], "people": [], "tasks": [], "statuses": [], "phases": []}
     if session.confirmed_at is None:
         catalog = {
             "projects": list(Project.objects.order_by("name").values("id", "name")),
+            "phases": list(ProjectPhase.objects.order_by("project_id", "position", "pk").values("id", "name", "project_id")),
             "people": list(Person.objects.order_by("name").values("id", "name")),
             "tasks": [task_option(task) for task in Task.objects.select_related("project", "assignee").order_by("title", "pk")],
             "statuses": [{"value": value, "label": label} for value, label in Task.Status.choices],

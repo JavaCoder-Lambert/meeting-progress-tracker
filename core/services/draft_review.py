@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from django.db.models import Q
+from django.utils import timezone
 
-from core.models import Person, Project, Task
+from core.models import Person, Project, ProjectPhase, Task
 
 from .llm_schema import normalize_date
+from .ai_history import TaskBaselineConflict, check_task_baseline, task_baseline
 from .task_matching import TaskCandidate, find_task_candidates
 from .task_payload import task_review_values
 
@@ -17,6 +19,11 @@ def _date_input(value, meeting_date):
     except (TypeError, ValueError):
         return {"type": "text", "value": str(value)}
     return {"type": "date", "value": normalized.isoformat() if normalized else ""}
+
+
+def task_planning_values(task):
+    return {"phase_id": str(task.phase_id or "") if task else "",
+            "planned_for": task.planned_for.isoformat() if task and task.planned_for else ""}
 
 
 def _selected_id(rows, index, key, default_name, defaults):
@@ -73,11 +80,15 @@ def _task_recommendation(item, project, person, candidates, candidate_tasks, mee
             candidate.assignee and candidate.assignee.name == item["assignee_name"]
         )
         title_matches = candidate.title.strip() == str(item.get("title", "")).strip()
-        if candidate.project_id == project.pk and assignee_matches and title_matches:
+        if candidate.project_id == project.pk and title_matches:
             matching_candidate = candidate
+            if not assignee_matches:
+                reasons.append("负责人变更，需确认")
+            if candidate.status == Task.Status.DONE:
+                reasons.append("任务已完成，需确认是否继续更新")
 
     if matching_candidate:
-        return "update", reasons, matching_candidate
+        return "ignore" if reasons else "update", reasons, matching_candidate
     if candidates:
         reasons.append("疑似重复")
     if reasons:
@@ -88,14 +99,18 @@ def _task_recommendation(item, project, person, candidates, candidate_tasks, mee
 def build_draft_review(draft, decisions=None, preserve_values=False) -> dict:
     """Prepare compact, safe defaults for rendering an import draft review."""
     payload = draft.payload
+    confirmation_date = timezone.localdate(draft.confirmed_at) if draft.confirmed_at else timezone.localdate()
     decisions = decisions or {}
     projects = list(Project.objects.all())
+    phases = list(ProjectPhase.objects.select_related("project"))
     selected_people = {str(row.get(key, "")) for group, key in (("tasks", "assignee_id"), ("risks", "owner_id")) for row in decisions.get(group, [])}
     selected_people = {int(pk) for pk in selected_people if pk.isdecimal() and len(pk) < 12}
     people = list(Person.objects.filter(Q(is_active=True) | Q(pk__in=selected_people)))
     project_by_name = {item.name: item for item in projects}
     person_by_name = {item.name: item for item in people}
-    open_tasks = list(Task.objects.exclude(status=Task.Status.DONE).select_related("project", "assignee"))
+    # Small single-user dataset: include completed work so old meeting records
+    # and follow-ups cannot silently create duplicates just because it is done.
+    open_tasks = list(Task.objects.select_related("project", "assignee"))
     open_tasks_by_id = {task.pk: task for task in open_tasks}
     selected_ids = {str(row.get("task_id", "")) for row in decisions.get("tasks", [])}
     selected_ids = {int(pk) for pk in selected_ids if pk.isdecimal() and len(pk) < 12}
@@ -118,8 +133,24 @@ def build_draft_review(draft, decisions=None, preserve_values=False) -> dict:
         selected_task = open_tasks_by_id.get(int(existing_id)) if existing_id.isdecimal() and len(existing_id) < 12 else None
         if selected_task and not any(candidate.task_id == selected_task.pk for candidate in candidates):
             candidates.append(TaskCandidate(selected_task.pk, selected_task.title, 0))
+        baselines = {str(candidate.task_id): task_baseline(open_tasks_by_id[candidate.task_id], draft)
+                     for candidate in candidates}
+        if selected_task and decision.get("action") == "update":
+            # Reopening or autosaving a draft must not silently accept task edits.
+            baselines[existing_id] = decision.get("task_baseline", "")
+            if draft.meeting_note.meeting_date == timezone.localdate() and not draft.confirmed_at:
+                try:
+                    check_task_baseline(selected_task, draft, decision.get("task_baseline"))
+                except TaskBaselineConflict:
+                    reasons.append("任务已变化或基线缺失，请重新核对当前任务")
         if not draft.confirmed_at and not preserve_values:
             item = task_review_values(item, selected_task if action == "update" else None)
+        planning = task_planning_values(selected_task if action == "update" else None)
+        planning_provided = decision.get("planning_provided", [])
+        planning.update({key: value for key, value in decision.get("planning", {}).items()
+                         if key in planning_provided})
+        if draft.confirmed_at:
+            planning = item.get("_planning", {"phase_id": "", "planned_for": ""})
         task_rows.append({
             "item": item,
             "candidates": candidates,
@@ -127,6 +158,11 @@ def build_draft_review(draft, decisions=None, preserve_values=False) -> dict:
             "recommended_existing_id": str(existing_task.pk) if existing_task else "",
             "action": action,
             "existing_id": existing_id,
+            "task_baselines": baselines,
+            "planning": planning,
+            "planning_provided": planning_provided,
+            "task_plans": {str(c.task_id): task_planning_values(open_tasks_by_id[c.task_id]) for c in candidates},
+            "planned_for": _date_input(planning["planned_for"], draft.meeting_note.meeting_date),
             "attention_reasons": reasons,
             "needs_attention": bool(reasons),
             "diffs": _task_diffs(selected_task, item, draft.meeting_note.meeting_date) if selected_task else [],
@@ -172,7 +208,10 @@ def build_draft_review(draft, decisions=None, preserve_values=False) -> dict:
             "attention": sum(row["needs_attention"] for row in task_rows),
         },
         "projects": projects,
+        "phases": phases,
         "people": people,
         "task_statuses": Task.Status.choices,
         "task_priorities": Task.Priority.choices,
+        "historical": draft.meeting_note.meeting_date < confirmation_date,
+        "future_meeting": draft.meeting_note.meeting_date > confirmation_date,
     }

@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}{{ title }}{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="{% static 'css/task-form.css' %}">
+<script src="{% static 'js/task-form.js' %}" defer></script>
+<div class="page task-editor">
+  <div class="page-head">
+    <div><a class="back-link" href="{{ return_url }}">← 返回原页面</a><h1>{{ title }}</h1><p class="muted">填写任务与当前进展，更多日期和说明可按需展开。</p></div>
+    {% if task %}<a class="button quiet" href="{% url 'task_detail' task.pk %}" target="_blank" rel="noopener">查看当前任务 ↗</a>{% endif %}
+  </div>
+  <form method="post" class="surface task-editor-form" data-task-form>
+    {% csrf_token %}{{ form.task_baseline }}
+    <input type="hidden" name="next" value="{{ return_url }}">
+    {% if form.errors %}<div class="alert error" role="alert">请修正后再保存。本次修改未写入。{{ form.non_field_errors }}{{ form.task_baseline.errors }}</div>{% endif %}
+    {% if conflict or reviewing %}
+      <section class="task-current-state" aria-labelledby="task-current-title">
+        <h2 id="task-current-title">当前已保存的数据</h2>
+        <p>{% if reviewing %}已载入当前数据供你核对。填写内容仍保留，请对照调整后再保存。{% else %}你的填写保留在下方。请先重新核对当前数据，再决定如何保存。{% endif %}</p>
+        <dl class="task-current-grid">
+          <div><dt>任务</dt><dd>{{ task.title }}</dd></div>
+          <div><dt>项目 / 阶段</dt><dd>{{ task.project.name }} / {{ task.phase.name|default:'未归属阶段' }}</dd></div>
+          <div><dt>状态 / 进度</dt><dd>{{ task.get_status_display }} · {{ task.progress }}%</dd></div>
+          <div><dt>负责人 / 优先级</dt><dd>{{ task.assignee.name|default:'未指定' }} · {{ task.get_priority_display }}</dd></div>
+          <div><dt>安排 / 截止</dt><dd>{{ task.planned_for|date:'Y-m-d'|default:'未安排' }} / {{ task.due_date|date:'Y-m-d'|default:'未设置' }}</dd></div>
+          <div><dt>计划开始 / 验收</dt><dd>{{ task.planned_start_date|date:'Y-m-d'|default:'未设置' }} / {{ task.acceptance_date|date:'Y-m-d'|default:'未设置' }}</dd></div>
+          <div class="task-current-wide"><dt>当前说明</dt><dd>{{ task.current_note|default:'未填写'|linebreaksbr }}</dd></div>
+          {% if task.description %}<div class="task-current-wide"><dt>说明</dt><dd>{{ task.description|linebreaksbr }}</dd></div>{% endif %}
+        </dl>
+        {% if conflict %}<button class="button" type="submit" name="intent" value="review_current" formnovalidate>保留填写，重新核对当前任务</button><a class="button quiet" href="{% url 'task_edit' task.pk %}?next={{ return_url|urlencode }}" target="_blank" rel="noopener">打开最新编辑页 ↗</a>{% endif %}
+      </section>
+    {% endif %}
+    <div class="task-fields-grid">
+      {% for field in main_fields %}
+        <div class="task-field task-field-{{ field.name }}">
+          <label for="{{ field.id_for_label }}">{{ field.label }}{% if field.field.required %}<span class="required-mark" aria-hidden="true"> *</span>{% endif %}</label>
+          {{ field }}{{ field.errors }}
+          {% if field.name == 'phase' %}<small class="helptext" data-task-phase-status role="status">选择项目后，阶段会同步调整。</small>{% elif field.name == 'planned_for' %}<small class="helptext">准备哪天推进，与截止日期分开管理。</small>{% endif %}
+        </div>
+      {% endfor %}
+    </div>
+    <details class="task-advanced"{% if advanced_open %} open{% endif %}>
+      <summary>更多日期与说明</summary>
+      <div class="task-fields-grid">
+        {% for field in advanced_fields %}<div class="task-field task-field-{{ field.name }}"><label for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{{ field.errors }}</div>{% endfor %}
+      </div>
+    </details>
+    <div class="task-editor-actions"><a class="button quiet" href="{{ return_url }}">取消并返回</a><button class="button primary" type="submit"{% if conflict %} disabled{% endif %}>{% if reviewing %}确认核对并保存{% else %}保存任务{% endif %}</button></div>
+  </form>
+</div>
+{{ phase_options|json_script:'task-phase-options' }}
+{% endblock %}

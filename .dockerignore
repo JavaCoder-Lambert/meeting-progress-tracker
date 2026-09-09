@@ -1,8 +1,12 @@
 .git
 .worktrees
+.idea
+.superpowers
 .venv
 .env
 .env.server
+.env*.release.json
+docker-compose.migration.yml
 *.sqlite3
 *.sqlite3-*
 data
@@ -10,4 +14,9 @@ staticfiles
 __pycache__
 .pytest_cache
 tests
-docs
+docs/*
+!docs/user-guide.md
+!docs/troubleshooting.md
+!docs/deployment.md
+!docs/migration.md
+!docs/operations.md

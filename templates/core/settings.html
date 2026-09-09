@@ -1,1 +1,22 @@
-{% extends 'base.html' %}{% block title %}设置与数据{% endblock %}{% block content %}<div class="page narrow"><div class="page-head"><div><span class="eyebrow">个人工作空间</span><h1>设置与数据</h1><p class="muted">管理解析配置、数据导出和登录账号。</p></div></div><section class="surface"><h2>会议解析</h2><p>{% if llm_ready %}<span class="dot ok"></span>模型已配置{% else %}<span class="dot danger-bg"></span>尚未配置模型，请完成服务器模型设置{% endif %}</p><p class="muted">提交后在后台处理，可以离开页面。解析结果会保留在会议记录中，确认后才写入任务。</p><a class="button" href="{% url 'meeting_list' %}">查看会议处理状态</a></section><section class="surface"><h2>数据导出</h2><p>JSON 用于读取业务数据，CSV ZIP 用于表格分析，均包含项目阶段和任务安排。</p><div class="action-group"><a class="button" href="{% url 'export_json' %}">下载 JSON</a><a class="button" href="{% url 'export_csv' %}">下载 CSV ZIP</a></div><p class="footnote">完整迁移请使用服务器数据库备份；数据导出不包含账号、登录状态和全部解析草稿。</p></section><section class="surface"><h2>账号与日期</h2><p class="muted">所有业务日期使用中国时区，服务器在美国也保持一致。</p><a class="button" href="{% url 'password_change' %}">修改登录密码</a></section></div>{% endblock %}
+{% extends "base.html" %}
+{% block title %}设置与运行状态{% endblock %}
+{% block content %}
+<div class="page">
+  <div class="page-head"><div><span class="eyebrow">维护与帮助</span><h1>设置与运行状态</h1><p class="muted">查看运行情况，管理数据，找到下一步操作。</p></div><a class="button" href="{% url 'help' %}">使用与部署指南</a></div>
+  <section class="surface" aria-labelledby="runtime-title">
+    <div class="section-head"><h2 id="runtime-title">当前运行</h2><span class="badge">{{ runtime.version }}</span></div>
+    <dl class="runtime-facts">
+      <div><dt>数据库</dt><dd>{% if runtime.database_ready %}可读取{% else %}<span class="danger">尚未就绪</span>{% endif %}<small>业务时区：中国标准时间</small></dd></div>
+      <div><dt>解析队列</dt><dd>{{ runtime.queued }} 等待 · {{ runtime.running }} 处理中<small>{{ runtime.failed }} 项失败，可在会议中查看并重试</small></dd></div>
+      <div><dt>最长排队时间</dt><dd>{% if runtime.oldest_wait_seconds != None %}{{ runtime.oldest_wait_seconds }} 秒{% else %}没有排队任务{% endif %}<small>最近结束：{{ runtime.last_finished_at|date:'m-d H:i'|default:'暂无记录' }}</small></dd></div>
+    </dl>
+    {% if runtime.queue_warning %}<p class="warning" role="status">任务已等待较久。请检查 worker 是否运行；不要重复提交同一会议。</p>{% endif %}
+    <a class="text-link" href="{% url 'meeting_list' %}">查看会议处理状态 →</a>
+  </section>
+  <div class="grid two settings-grid">
+    <section aria-labelledby="model-title"><h2 id="model-title">大模型</h2><p>{% if llm_ready %}<span class="badge">已配置 · 未测试连接</span>{% else %}<span class="badge">尚未配置</span>{% endif %}</p><p class="muted">这里仅检查配置是否填写，不会发送请求或产生模型费用。配置、网络或服务商异常请按排查指南处理。</p><p class="footnote">API Key 只保存在环境配置中，不展示、不写入业务导出。未配置时仍可使用手动会议。</p><a class="text-link" href="{% url 'help' %}#troubleshooting">解析问题排查 →</a></section>
+    <section aria-labelledby="backup-title"><h2 id="backup-title">最近成功快照</h2>{% if runtime.backup %}<p><time datetime="{{ runtime.backup.completed_at|date:'c' }}">{{ runtime.backup.completed_at|date:'Y-m-d H:i:s' }}</time></p><p class="muted">{{ runtime.backup.filename }}</p>{% else %}<p class="muted">尚无备份状态记录。请按维护手册创建并校验备份。</p>{% endif %}<p class="footnote">此处记录本机快照成功时间，不代表文件仍存在或异地副本已完成。升级前请保留独立备份。</p><a class="text-link" href="{% url 'help' %}#deployment">备份、迁移与恢复 →</a></section>
+  </div>
+  <section class="surface" aria-labelledby="export-title"><h2 id="export-title">导出与账户</h2><p class="muted">查阅数据用导出；整站迁移用 SQLite 完整备份和单独保存的 env。</p><div class="row-actions"><a class="button" href="{% url 'export_json' %}">导出 JSON</a><a class="button" href="{% url 'export_csv' %}">导出 CSV ZIP</a><a class="button quiet" href="{% url 'password_change' %}">修改登录密码</a></div><p class="footnote">导出包含项目阶段和任务安排，但不能替代账户、暂存会议和解析队列的完整恢复。修改 env 中的初始管理员密码不会覆盖已有账户密码。</p></section>
+</div>
+{% endblock %}

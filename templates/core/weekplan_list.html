@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}项目周计划 · {{ project.name }}{% endblock %}
+{% block content %}
+<div class="page">
+<header class="page-head"><div><a href="{% url 'project_detail' project.pk %}">返回项目</a><h1>{{ project.name }} · 周计划</h1><p>明确发布每周承诺，保留各版交付和周末实际。</p></div></header>
+<section class="surface"><h2>新建或继续草稿</h2><form class="form-grid" method="post">{% csrf_token %}{{ form.as_p }}<button class="button primary" type="submit">打开该周草稿</button></form></section>
+<section class="surface"><h2>计划版本</h2><div class="data-list">{% for plan in page_obj %}<div class="data-row"><a href="{% url 'weekplan_detail' plan.pk %}">{{ plan.week_start|date:'Y-m-d' }} 起 · 第 {{ plan.revision }} 版</a><span>{{ plan.get_status_display }}</span>{% if plan.reason %}<span>{{ plan.reason }}</span>{% endif %}</div>{% empty %}<p class="empty-state">暂无周计划。选择业务周创建草稿。</p>{% endfor %}</div>
+<nav aria-label="计划分页">{% if page_obj.has_previous %}<a href="?page={{ page_obj.previous_page_number }}">上一页</a>{% endif %} 第 {{ page_obj.number }} / {{ page_obj.paginator.num_pages }} 页 {% if page_obj.has_next %}<a href="?page={{ page_obj.next_page_number }}">下一页</a>{% endif %}</nav></section>
+</div>
+{% endblock %}

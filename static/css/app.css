@@ -115,6 +115,29 @@ small { display: block; line-height: 1.45; }
 .action-counts a:last-child { border-right: 0; }
 .action-counts a:hover { background: rgba(255, 255, 255, .06); }
 .follow-up-text { margin: 8px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
+.quiet-queues { border-bottom: 1px solid var(--line); margin: 20px 0; color: var(--muted); }
+.quiet-queues > summary { cursor: pointer; padding: 12px 0; min-height: 44px; }
+.quiet-queues p { margin: 8px 0; }
+.dashboard-priorities > section { min-width: 0; }
+.compact-empty { padding: 12px 16px; background: var(--surface); color: var(--muted); border-radius: 6px; }
+.planning-suggestions { margin-top: 28px; }
+.planning-suggestions h2 { margin: 4px 0; }
+.suggestion-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 20px; align-items: center; border-top: 1px solid var(--line); padding: 14px 0; }
+.suggestion-row p { margin: 4px 0 0; font-size: 12px; }
+.inline-schedule { display: flex; gap: 8px; align-items: center; }
+.inline-schedule input { width: 150px; }
+.runtime-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; margin: 12px 0 20px; }
+.runtime-facts dt { color: var(--muted); margin-bottom: 6px; }
+.runtime-facts dd { margin: 0; font-variant-numeric: tabular-nums; }
+.runtime-facts small { margin-top: 6px; }
+.settings-grid section { min-width: 0; }
+.guide-steps { padding-left: 24px; max-width: 760px; }
+.guide-steps li { padding: 10px 0 18px 8px; border-bottom: 1px solid var(--line); }
+.guide-steps p { margin: 6px 0; }
+@media (max-width: 700px) {
+  .suggestion-row, .runtime-facts { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .inline-schedule { flex-wrap: wrap; }
+}
 
 .grid.two { display: grid; grid-template-columns: minmax(0, 1.12fr) minmax(0, .88fr); gap: 28px; margin: 30px 0; align-items: start; }
 .card { display: block; margin-bottom: 12px; padding: 18px 20px; border: 1px solid var(--line); border-radius: var(--radius-md); background: rgba(255, 255, 255, .86); box-shadow: none;  }
@@ -447,6 +470,24 @@ input[type="checkbox"] { min-height: 18px; width: 18px; height: 18px; accent-col
 .project-facts span { display: block; color: var(--muted); font-size: 12px; margin-bottom: 6px; }
 .project-facts strong { font-size: 16px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .project-workspace { display: grid; grid-template-columns: minmax(0,1.7fr) minmax(260px,1fr); gap: 40px; }
+.project-workspace > section, .project-workspace > aside { min-width: 0; }
+.project-task-toolbar, .project-task-toolbar form { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+.project-task-toolbar { justify-content: space-between; padding-bottom: 12px; font-size: 13px; }
+.project-phase-group { margin-bottom: 24px; }
+.project-phase-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border-block: 1px solid var(--line); background: var(--surface); }
+.project-phase-heading h3 { margin: 0; font-size: 15px; }
+.project-phase-heading small, .project-execution-main small { display: block; color: var(--muted); margin-top: 4px; }
+.project-execution-row { display: grid; grid-template-columns: minmax(0,1fr) auto auto; align-items: center; gap: 10px; padding: 14px 4px 14px 14px; border-bottom: 1px solid var(--line); }
+.project-execution-main { min-width: 0; overflow-wrap: anywhere; }
+.project-execution-main .task-title { font-size: 14px; }
+.project-execution-row > .button { font-size: 12px; white-space: nowrap; }
+.phase-empty, .timeline-undated-note { color: var(--muted); font-size: 13px; padding: 12px 14px; margin: 0; }
+.timeline-undated-note { padding-inline: 0; }
+@media (max-width: 560px) {
+  .project-execution-row { grid-template-columns: minmax(0,1fr) auto; }
+  .project-execution-main { grid-column: 1 / -1; }
+  .project-execution-row > .button { justify-self: end; }
+}
 .phase-list { list-style: none; margin: 0; padding: 0; }
 .phase-list > li { display: flex; gap: 16px; align-items: start; padding: 18px 0; border-bottom: 1px solid var(--line); }
 .phase-list > li > div { flex: 1; min-width: 0; }

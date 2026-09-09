@@ -7,5 +7,7 @@
     request_body {
         max_size 2MB
     }
-    reverse_proxy app:8000
+    reverse_proxy app:8000 {
+        header_up X-Tracker-Client-IP {remote_host}
+    }
 }

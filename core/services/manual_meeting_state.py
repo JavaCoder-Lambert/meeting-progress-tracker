@@ -3,7 +3,7 @@ from datetime import date, time
 from uuid import UUID
 
 from django.core import signing
-from core.models import Person, Project, Task
+from core.models import Person, Project, ProjectPhase, Task
 
 from .manual_meetings import ManualMeetingError
 
@@ -40,7 +40,7 @@ def normalize_state(value, check_refs=True):
         if kind not in {"task", "new_task", "risk", "decision", "note"}:
             raise ManualMeetingError("记录类型无效。")
         card = {"id": uid, "kind": kind}
-        for key in ("task_id", "project_id", "person_id"):
+        for key in ("task_id", "project_id", "person_id", "phase_id"):
             card[key] = identifier(raw.get(key))
         if kind == "task" and card["task_id"]:
             if card["task_id"] in linked:
@@ -62,6 +62,22 @@ def normalize_state(value, check_refs=True):
         state["items"].append(card)
     if check_refs:
         check_references(state)
+    followups = value.get("risk_followups", [])
+    if not isinstance(followups, list) or len(followups) > 300:
+        raise ManualMeetingError("风险跟进必须为列表，最多 300 项。")
+    if followups:
+        state["risk_followups"] = []
+        seen = set()
+        for raw in followups:
+            if not isinstance(raw, dict):
+                raise ManualMeetingError("风险跟进格式无效。")
+            entry = {key: text(raw.get(key, ""), 100 if key == "token" else 20000)
+                     for key in ("response", "next_step", "reason", "status", "baseline", "token")}
+            entry.update(risk_id=identifier(raw.get("risk_id")), owner_id=identifier(raw.get("owner_id")), due_date=date_value(raw.get("due_date", "")))
+            if not entry["risk_id"] or entry["risk_id"] in seen:
+                raise ManualMeetingError("同一风险只能保留一条本次跟进。")
+            seen.add(entry["risk_id"])
+            state["risk_followups"].append(entry)
     return state
 
 
@@ -123,3 +139,12 @@ def check_references(state):
         ids.update(card[key] for card in state["items"] if card[key])
         if ids - set(model.objects.filter(pk__in=ids).values_list("pk", flat=True)):
             raise ManualMeetingError(f"关联{label}不存在，请重新选择。")
+    phase_ids = {card["phase_id"] for card in state["items"] if card.get("phase_id")}
+    phases = dict(ProjectPhase.objects.filter(pk__in=phase_ids).values_list("pk", "project_id"))
+    for card in state["items"]:
+        if not card.get("phase_id"):
+            continue
+        if card["phase_id"] not in phases:
+            raise ManualMeetingError("关联阶段不存在，请重新选择。")
+        if card["kind"] != "new_task" or phases[card["phase_id"]] != card["project_id"]:
+            raise ManualMeetingError("阶段必须属于新增任务所选项目。")

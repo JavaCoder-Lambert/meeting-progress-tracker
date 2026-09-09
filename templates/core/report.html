@@ -1,8 +1,10 @@
 {% extends "base.html" %}
+{% load static %}
 {% block title %}周报{% endblock %}
 {% block content %}
+<link rel="stylesheet" href="{% static 'css/report.css' %}">
 <div class="page">
-  <div class="page-head"><div><span class="eyebrow">自动归集</span><h1>项目周报</h1><p class="muted">检查本周进展，复制 Markdown 后可直接分享。</p></div></div>
+  <div class="page-head"><div><span class="eyebrow">自动归集</span><h1>项目周报</h1><p class="muted">按任务汇总本期进展，状态和下一步以本期最后一次记录为准。</p></div></div>
   {% if error %}<div class="alert error" role="alert">{{ error }}</div>{% endif %}
   <form class="filters" aria-label="周报日期范围">
     <label for="report-start">开始日期<input id="report-start" type="date" name="start" value="{{ start }}"></label>
@@ -17,7 +19,55 @@
       </div>
       <button class="button" type="button" data-copy-target="report">复制周报</button>
     </div>
-    <div id="report-preview" role="tabpanel" aria-labelledby="preview-tab" tabindex="0"><pre class="report-preview">{{ markdown }}</pre></div>
+    <div id="report-preview" role="tabpanel" aria-labelledby="preview-tab" tabindex="0">
+      <p class="report-period"><time datetime="{{ start }}">{{ start }}</time> 至 <time datetime="{{ end }}">{{ end }}</time></p>
+      {% for project in report.projects %}
+        <section class="report-project" aria-labelledby="report-project-{{ forloop.counter }}">
+          <h2 id="report-project-{{ forloop.counter }}">{{ project.name }}</h2>
+          {% for task in project.tasks %}
+            <article class="report-task" aria-labelledby="report-task-{{ task.task_id }}">
+              <div class="report-task-heading">
+                <h3 id="report-task-{{ task.task_id }}">{{ task.title }}</h3>
+                <a href="{% url 'task_detail' task.task_id %}">查看任务</a>
+              </div>
+              <p class="report-task-state"><span>期末状态</span><span class="badge status-{{ task.status }}">{{ task.status_label }}</span>{% if task.progress != None %}<span>{{ task.progress }}%</span>{% endif %}<span class="muted">截至 <time datetime="{{ task.date|date:'Y-m-d' }}">{{ task.date|date:'Y-m-d' }}</time></span></p>
+              <dl class="report-task-summary">
+                <dt>本期进展</dt>
+                <dd>{% if task.completed_work %}<ul class="report-work">{% for work in task.completed_work %}<li>{{ work }}</li>{% endfor %}</ul>{% elif task.status == 'done' %}已完成，未补充具体工作。{% else %}<span class="muted">未记录具体工作。</span>{% endif %}</dd>
+                <dt>下一步</dt>
+                <dd>{% if task.next_step %}{{ task.next_step }}{% else %}<span class="muted">本期最后一次记录未填写下一步。</span>{% endif %}</dd>
+              </dl>
+              <details class="report-history">
+                <summary>查看本期 {{ task.updates|length }} 条进展明细</summary>
+                <ol>
+                  {% for update in task.updates %}
+                    <li>
+                      <p class="report-history-meta"><time datetime="{{ update.date|date:'Y-m-d' }}">{{ update.date|date:'Y-m-d' }}</time><span>{{ update.status_label }}</span></p>
+                      {% if update.correction %}<p class="muted">已更正：{{ update.correction.reason }} · <a href="{% url 'meeting_history' update.meeting_id %}">查看原记录与更正历史</a></p>{% endif %}
+                      {% if update.completed_work %}<p class="report-history-text"><strong>本次进展：</strong>{{ update.completed_work }}</p>{% endif %}
+                      <p class="report-history-text"><strong>当时下一步：</strong>{% if update.next_step %}{{ update.next_step }}{% else %}<span class="muted">未填写</span>{% endif %}</p>
+                    </li>
+                  {% endfor %}
+                </ol>
+              </details>
+            </article>
+          {% endfor %}
+        </section>
+      {% empty %}
+        <div class="empty-state"><p>所选日期内暂无任务进展。</p><a href="{% url 'task_list' %}">前往任务记录进展</a></div>
+      {% endfor %}
+      <section class="report-supplement" aria-labelledby="report-risks-title">
+        <h2 id="report-risks-title">风险与待决策</h2>
+        <h3>本周新增</h3>
+        <ul>{% for risk in report.risks %}<li>{{ risk }}</li>{% empty %}<li class="muted">无</li>{% endfor %}</ul>
+        <h3>本周跟进</h3>
+        <ul>{% for followup in report.followups %}<li>{{ followup }}</li>{% empty %}<li class="muted">无</li>{% endfor %}</ul>
+      </section>
+      <section class="report-supplement" aria-labelledby="report-milestones-title">
+        <h2 id="report-milestones-title">里程碑变化</h2>
+        <ul>{% for milestone in report.milestones %}<li>{{ milestone }}</li>{% empty %}<li class="muted">无</li>{% endfor %}</ul>
+      </section>
+    </div>
     <div id="report-markdown" role="tabpanel" aria-labelledby="markdown-tab" tabindex="0">
       <label class="sr-only" for="report">周报 Markdown 原文</label>
       <textarea class="report-markdown" id="report" rows="24" readonly>{{ markdown }}</textarea>

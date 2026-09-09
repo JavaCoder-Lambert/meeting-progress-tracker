@@ -166,8 +166,8 @@ def test_meeting_inbox_pages_in_sql_without_fetching_raw_content_or_draft_payloa
         for i in range(45)
     ])
     ImportDraft.objects.bulk_create([ImportDraft(meeting_note=n, payload={"summary": "large payload"}) for n in notes])
-    # Session + user + COUNT + one annotated, paginated list query.
-    with django_assert_num_queries(4) as captured:
+    # Session + user + COUNT + project picker + one annotated, paginated list query.
+    with django_assert_num_queries(5) as captured:
         first = admin_client.get("/meetings/")
     assert len(first.context["meeting_list"]) == 20
     assert first.context["page_obj"].paginator.count == 45

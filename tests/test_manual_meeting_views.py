@@ -5,7 +5,7 @@ from django.test import Client
 from django.urls import reverse
 from django.utils import timezone
 
-from core.models import MeetingNote, ParseJob, Person, Project, Task
+from core.models import MeetingNote, MeetingSession, ParseJob, Person, Project, ProjectPhase, Task
 
 
 def meeting_state(**kwargs):
@@ -53,6 +53,121 @@ def test_manual_create_rejects_invalid_dates_and_preserves_entered_title(admin_c
 
 
 @pytest.mark.django_db
+def test_prepare_next_meeting_only_creates_after_submit_and_uses_latest_open_tasks(admin_client):
+    from copy import deepcopy
+    from uuid import uuid4
+    from core.services.manual_meetings import confirm_session, create_session, task_option
+
+    project = Project.objects.create(name="订单履约")
+    person = Person.objects.create(name="张川")
+    open_task = Task.objects.create(project=project, assignee=person, title="接口联调", progress=20)
+    done_task = Task.objects.create(project=project, title="已交付", status=Task.Status.DONE)
+    archived = Project.objects.create(name="旧项目", status=Project.Status.ARCHIVED)
+    archived_task = Task.objects.create(project=archived, title="归档任务")
+    source = create_session(meeting_state(project_ids=[project.pk], person_ids=[person.pk], items=[
+        {"id": str(uuid4()), "kind": "task", "task_id": task.pk, "baseline": task_option(task)["baseline"],
+         "recorded": task == open_task, "completed_work": "上次已联调", "next_step": "上次的安排"}
+        for task in (open_task, done_task, archived_task)
+    ]))
+    source = confirm_session(source.pk, source.version)
+    old_state, old_minutes, old_version = deepcopy(source.state), source.minutes, source.version
+    url = f"/meetings/manual/{source.pk}/continue/"
+    response = admin_client.get(url)
+    assert response.status_code == 200
+    assert MeetingSession.objects.count() == 1
+    form = response.context["form"]
+    assert form["title"].value() == "订单履约周会"
+    assert form["meeting_date"].value() == timezone.localdate()
+    assert not form["meeting_time"].value()
+    assert list(form["projects"].value()) == [project.pk]
+    assert list(form["people"].value()) == [person.pk]
+
+    open_task.progress = 65
+    open_task.current_note = "会后已经推进"
+    open_task.save()
+    response = admin_client.post(url, {"title": "下一次周会", "meeting_date": timezone.localdate().isoformat(),
+        "meeting_time": "14:00", "projects": [project.pk], "people": [person.pk]})
+    assert response.status_code == 302
+    workspace = admin_client.get(response.url)
+    next_state = workspace.context["session_data"]["state"]
+    assert next_state["title"] == "下一次周会" and next_state["meeting_time"] == "14:00"
+    assert len(next_state["items"]) == 1
+    card = next_state["items"][0]
+    assert card["task_id"] == open_task.pk and card["person_id"] == person.pk
+    assert card["progress"] == 65 and card["baseline_values"]["progress"] == 65
+    assert not card["recorded"] and card["completed_work"] == "" and card["next_step"] == ""
+    assert card["id"] != old_state["items"][0]["id"]
+    next_session = MeetingSession.objects.get(pk=workspace.context["session_data"]["id"])
+    confirm_session(next_session.pk, next_session.version)
+    open_task.refresh_from_db()
+    assert open_task.progress == 65 and open_task.current_note == "会后已经推进"
+    source.refresh_from_db()
+    assert (source.state, source.minutes, source.version) == (old_state, old_minutes, old_version)
+
+
+@pytest.mark.django_db
+def test_confirmed_meeting_and_new_page_expose_continuation_but_unconfirmed_source_is_rejected(admin_client):
+    from core.services.manual_meetings import confirm_session, create_session
+
+    source = create_session(meeting_state())
+    url = f"/meetings/manual/{source.pk}/continue/"
+    assert Client().get(url).status_code == 302
+    assert admin_client.get(url).status_code == 404
+    assert admin_client.post(url, {"title": "不能复制", "meeting_date": timezone.localdate().isoformat()}).status_code == 404
+    source = confirm_session(source.pk, source.version)
+    for path in ("/meetings/manual/new/", f"/meetings/manual/{source.pk}/"):
+        html = admin_client.get(path).content.decode()
+        assert f'href="{url}"' in html
+    assert MeetingSession.objects.count() == 1
+
+
+@pytest.mark.django_db
+def test_continuation_includes_tasks_created_last_meeting_and_retains_inactive_participants(admin_client):
+    from uuid import uuid4
+    from core.services.manual_meetings import confirm_session, create_session
+
+    project = Project.objects.create(name="订单")
+    person = Person.objects.create(name="原汇报人")
+    source = create_session(meeting_state(project_ids=[project.pk], person_ids=[person.pk], items=[
+        {"id": str(uuid4()), "kind": "new_task", "project_id": project.pk, "person_id": person.pk,
+         "title": "上次新增", "recorded": True, "completed_work": "已讨论", "next_step": "待联调"},
+    ]))
+    confirm_session(source.pk, source.version)
+    person.is_active = False
+    person.save()
+    url = reverse("manual_meeting_continue", args=[source.pk])
+    page = admin_client.get(url)
+    assert page.context["form"]["agenda"].value() == ""
+    assert person.pk in page.context["form"].fields["people"].queryset.values_list("pk", flat=True)
+    future = (timezone.localdate() + timedelta(days=7)).isoformat()
+    response = admin_client.post(url, {"title": "下周会议", "meeting_date": future,
+        "projects": [project.pk], "people": [person.pk]})
+    assert response.status_code == 302
+    state = admin_client.get(response.url).context["session_data"]["state"]
+    assert state["meeting_date"] == future and state["meeting_time"] == ""
+    assert state["person_ids"] == [person.pk]
+    assert len(state["items"]) == 1
+    assert state["items"][0]["kind"] == "task" and state["items"][0]["title"] == "上次新增"
+    assert state["items"][0]["completed_work"] == "" and state["items"][0]["next_step"] == ""
+
+
+@pytest.mark.django_db
+def test_continuation_requires_csrf_and_invalid_date_keeps_the_prepared_form(admin_client, admin_user):
+    from core.services.manual_meetings import confirm_session, create_session
+
+    source = create_session(meeting_state())
+    confirm_session(source.pk, source.version)
+    url = reverse("manual_meeting_continue", args=[source.pk])
+    protected = Client(enforce_csrf_checks=True)
+    protected.force_login(admin_user)
+    assert protected.post(url, {"title": "下次", "meeting_date": timezone.localdate().isoformat()}).status_code == 403
+    response = admin_client.post(url, {"title": "保留输入", "meeting_date": "invalid"})
+    assert response.status_code == 200 and response.context["form"]["title"].value() == "保留输入"
+    assert response.context["source_session"].pk == source.pk
+    assert MeetingSession.objects.count() == 1
+
+
+@pytest.mark.django_db
 def test_manual_reference_requires_authentication(admin_client):
     response = Client().post("/meetings/manual/references/", {"kind": "person", "name": "张川"}, content_type="application/json")
     assert response.status_code == 302
@@ -78,6 +193,21 @@ def test_manual_save_rejects_stale_or_malformed_requests_and_keeps_server_draft(
     session.refresh_from_db()
     assert session.state["agenda"] == "尚未决定归属项目"
     assert Task.objects.count() == 0
+
+
+@pytest.mark.django_db
+def test_workspace_provides_phase_project_mapping_for_new_task_selection(admin_client):
+    from core.services.manual_meetings import create_session
+
+    project = Project.objects.create(name="履约")
+    phase = ProjectPhase.objects.create(project=project, name="验收")
+    other = Project.objects.create(name="财务")
+    other_phase = ProjectPhase.objects.create(project=other, name="对账")
+    session = create_session(meeting_state())
+    response = admin_client.get(reverse("manual_meeting_workspace", args=[session.pk]))
+    phases = response.context["catalog"]["phases"]
+    assert phases == [{"id": phase.pk, "name": "验收", "project_id": project.pk},
+                      {"id": other_phase.pk, "name": "对账", "project_id": other.pk}]
 
 
 @pytest.mark.django_db

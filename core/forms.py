@@ -1,6 +1,7 @@
 from django import forms
 from django.utils import timezone
 from .models import MeetingNote, Milestone, Person, Project, ProjectPhase, Risk, Task
+from .services.task_editing import task_edit_baseline
 
 
 class MeetingNoteForm(forms.ModelForm):
@@ -25,6 +26,14 @@ class MeetingNoteForm(forms.ModelForm):
 
 
 class ProjectForm(forms.ModelForm):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        unfinished = self.instance.tasks.exclude(status=Task.Status.DONE).count() if self.instance.pk else 0
+        self.fields["status"].help_text = (
+            (f"仍有 {unfinished} 个未完成任务。" if unfinished else "")
+            + "归档后，任务和风险不再进入首页待办与按人催办；任务状态和历史记录保留。"
+        )
+
     def clean(self):
         cleaned = super().clean()
         start, end = cleaned.get("planned_start_date"), cleaned.get("planned_end_date")
@@ -45,24 +54,45 @@ class PersonForm(forms.ModelForm):
 
 
 class TaskForm(forms.ModelForm):
+    task_baseline = forms.CharField(label="任务基线", widget=forms.HiddenInput, required=False)
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields["phase"].queryset = ProjectPhase.objects.select_related("project").all()
+        project_id = self.data.get("project") if self.is_bound else self.initial.get("project")
+        project_id = str(project_id or "")
+        self.fields["phase"].queryset = (ProjectPhase.objects.filter(project_id=int(project_id))
+                                        if project_id.isdecimal() and len(project_id) < 12 else ProjectPhase.objects.none())
+        self.fields["phase"].error_messages["invalid_choice"] = "阶段必须属于当前项目，请重新选择。"
+        self.fields["phase"].empty_label = "未归属阶段"
+        self.fields["assignee"].empty_label = "未指定"
+        self.fields["task_baseline"].required = bool(self.instance.pk)
+        self.fields["task_baseline"].error_messages["required"] = "任务基线缺失，请重新核对当前任务。"
+        if self.instance.pk and not self.is_bound:
+            self.initial["task_baseline"] = task_edit_baseline(self.instance)
 
     def clean(self):
         cleaned = super().clean()
         project = cleaned.get("project")
         if self.instance.pk and project and self.instance.risks.exclude(project=project).exists():
             self.add_error("project", "任务仍关联其他项目的风险，请先调整关联后再移动任务。")
+        if cleaned.get("status") == Task.Status.DONE and "progress" in cleaned:
+            cleaned["progress"] = 100
         return cleaned
 
     class Meta:
         model = Task
         fields = ["project", "phase", "title", "description", "assignee", "planned_for", "planned_start_date", "due_date", "acceptance_date", "status", "priority", "progress", "current_note"]
-        widgets = {field: forms.DateInput(format="%Y-%m-%d", attrs={"type": "date"}) for field in ("planned_for", "planned_start_date", "due_date", "acceptance_date")}
+        labels = {"project": "所属项目", "assignee": "负责人", "title": "任务名称", "progress": "进度（%）"}
+        widgets = {
+            **{field: forms.DateInput(format="%Y-%m-%d", attrs={"type": "date"}) for field in ("planned_for", "planned_start_date", "due_date", "acceptance_date")},
+            "description": forms.Textarea(attrs={"rows": 3}),
+            "current_note": forms.Textarea(attrs={"rows": 2, "placeholder": "当前进展、阻塞或需要留意的事"}),
+        }
 
 
 class TaskProgressForm(forms.Form):
+    task_baseline = forms.CharField(label="任务基线", widget=forms.HiddenInput,
+                                    error_messages={"required": "任务基线缺失，请重新核对当前任务。"})
     status = forms.ChoiceField(label="状态", choices=Task.Status.choices, required=False)
     progress = forms.IntegerField(label="进度", min_value=0, max_value=100, required=False)
     due_date = forms.DateField(label="截止日期", required=False, widget=forms.DateInput(format="%Y-%m-%d", attrs={"type": "date"}))
@@ -75,6 +105,7 @@ class TaskProgressForm(forms.Form):
         self.task = task
         if task is not None:
             self.initial.update({
+                "task_baseline": task_edit_baseline(task),
                 "status": task.status,
                 "progress": task.progress,
                 "due_date": task.due_date,
@@ -127,6 +158,8 @@ class ProjectPhaseForm(forms.ModelForm):
 
 
 class TaskScheduleForm(forms.Form):
+    task_baseline = forms.CharField(label="任务基线", widget=forms.HiddenInput,
+                                    error_messages={"required": "任务基线缺失，请重新核对当前任务。"})
     planned_for = forms.DateField(label="安排日期", required=False, widget=forms.DateInput(format="%Y-%m-%d", attrs={"type": "date"}))
     action = forms.ChoiceField(choices=(("date", "指定日期"), ("today", "今天"), ("next_week", "下周一"), ("clear", "取消安排")))
 

@@ -3,6 +3,7 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = Path(os.getenv("DATA_DIR", BASE_DIR / "data"))
+APP_VERSION = os.getenv("APP_VERSION", "development")
 DEBUG = os.getenv("DJANGO_DEBUG", "true").lower() in {"1", "true", "yes"}
 SECRET_KEY_PLACEHOLDER = "请替换为至少50位随机字符串"
 configured_secret_key = os.getenv("DJANGO_SECRET_KEY", "")
@@ -73,10 +74,28 @@ LOGIN_URL = "/accounts/login/"
 LOGIN_REDIRECT_URL = "/"
 LOGOUT_REDIRECT_URL = "/accounts/login/"
 
+# Empty for direct/local access. The server stack trusts only its fixed Caddy IP.
+LOGIN_TRUSTED_PROXY_CIDRS = [
+    value.strip() for value in os.getenv("LOGIN_TRUSTED_PROXY_CIDRS", "").split(",") if value.strip()
+]
+
 LLM_BASE_URL = os.getenv("LLM_BASE_URL", "https://api.openai.com/v1")
 LLM_API_KEY = os.getenv("LLM_API_KEY", "")
 LLM_MODEL = os.getenv("LLM_MODEL", "")
 LLM_TIMEOUT_SECONDS = int(os.getenv("LLM_TIMEOUT_SECONDS", "180"))
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {"llm_parse": {"()": "core.logging.LLMParseFormatter"}},
+    "handlers": {
+        "llm_parse": {"class": "logging.StreamHandler", "formatter": "llm_parse", "level": "INFO"},
+    },
+    "loggers": {
+        "core.services.llm_client": {"handlers": ["llm_parse"], "level": "INFO", "propagate": False},
+        "core.services.parse_jobs": {"handlers": ["llm_parse"], "level": "INFO", "propagate": False},
+    },
+}
 
 if not DEBUG:
     SESSION_COOKIE_SECURE = True

@@ -1,8 +1,13 @@
-from django.urls import path
-from . import manual_meeting_views, planning_views, views
+from django.urls import include, path
+from . import help_views, manual_meeting_views, planning_views, views
 
 urlpatterns = [
+    path("", include("core.weekplan_urls")),
+    path("", include("core.history_urls")),
     path("health/", views.health, name="health"),
+    path("ready/", help_views.readiness, name="readiness"),
+    path("help/", help_views.help_index, name="help"),
+    path("help/<slug:slug>/download/", help_views.document_download, name="document_download"),
     path("", views.dashboard, name="dashboard"),
     path("plans/", planning_views.plan_board, name="plan_board"),
     path("tasks/<int:pk>/schedule/", planning_views.task_schedule, name="task_schedule"),
@@ -11,6 +16,7 @@ urlpatterns = [
     path("meetings/manual/new/", manual_meeting_views.manual_meeting_create, name="manual_meeting_create"),
     path("meetings/manual/references/", manual_meeting_views.manual_meeting_reference, name="manual_meeting_reference"),
     path("meetings/manual/<int:pk>/", manual_meeting_views.manual_meeting_workspace, name="manual_meeting_workspace"),
+    path("meetings/manual/<int:pk>/continue/", manual_meeting_views.manual_meeting_create, name="manual_meeting_continue"),
     path("meetings/manual/<int:pk>/save/", manual_meeting_views.manual_meeting_save, name="manual_meeting_save"),
     path("meetings/manual/<int:pk>/preview/", manual_meeting_views.manual_meeting_preview, name="manual_meeting_preview"),
     path("meetings/manual/<int:pk>/confirm/", manual_meeting_views.manual_meeting_confirm, name="manual_meeting_confirm"),

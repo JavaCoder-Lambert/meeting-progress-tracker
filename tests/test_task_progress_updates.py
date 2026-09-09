@@ -6,8 +6,9 @@ from core.models import MeetingNote, ProgressUpdate, Project, Risk, Task
 from core.services.progress_updates import record_task_progress
 
 
-def task_edit_payload(task, **changes):
+def task_edit_payload(client, task, **changes):
     payload = {
+        "task_baseline": client.get(reverse("task_edit", args=[task.pk])).context["form"]["task_baseline"].value(),
         "project": str(task.project_id),
         "title": task.title,
         "description": task.description,
@@ -54,7 +55,8 @@ def test_invalid_progress_form_does_not_write_update_or_change_task(admin_client
 
     response = admin_client.post(
         reverse("task_progress_update", args=[task.pk]),
-        {"progress": "101", "completed_work": "不应写入"},
+        {"progress": "101", "completed_work": "不应写入", "task_baseline":
+         admin_client.get(reverse("task_detail", args=[task.pk])).context["progress_form"]["task_baseline"].value()},
     )
 
     task.refresh_from_db()
@@ -77,7 +79,8 @@ def test_text_only_form_submission_keeps_existing_task_values_and_redirects_to_d
 
     response = admin_client.post(
         reverse("task_progress_update", args=[task.pk]),
-        {"completed_work": "已完成接口联调", "next_step": "安排验收"},
+        {"completed_work": "已完成接口联调", "next_step": "安排验收", "task_baseline":
+         admin_client.get(reverse("task_detail", args=[task.pk])).context["progress_form"]["task_baseline"].value()},
     )
 
     task.refresh_from_db()
@@ -117,14 +120,14 @@ def test_full_task_edit_maintains_completion_timestamp_and_progress_history(admi
 
     done_response = admin_client.post(
         reverse("task_edit", args=[task.pk]),
-        task_edit_payload(task, status=Task.Status.DONE, progress="100"),
+        task_edit_payload(admin_client, task, status=Task.Status.DONE, progress="100"),
     )
     task.refresh_from_db()
     completed_at = task.completed_at
 
     reopened_response = admin_client.post(
         reverse("task_edit", args=[task.pk]),
-        task_edit_payload(task, status=Task.Status.IN_PROGRESS, progress="80"),
+        task_edit_payload(admin_client, task, status=Task.Status.IN_PROGRESS, progress="80"),
     )
     task.refresh_from_db()
     updates = list(task.progress_updates.order_by("recorded_at", "pk"))

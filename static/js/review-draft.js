@@ -7,6 +7,7 @@ function setupReviewDraft() {
   const initialStatus = status.textContent;
   let debounce = null;
   let saving = null;
+  let unacknowledged = null;
   let leaving = false;
   let bypass = false;
   let nativeSubmitting = false;
@@ -43,6 +44,7 @@ function setupReviewDraft() {
     if (!response.ok || data?.ok !== true) {
       const error = failure(data?.message || `暂存失败（HTTP ${response.status}）。`);
       error.conflict = response.status === 409;
+      error.rejected = response.status === 400;
       throw error;
     }
     if (!Number.isSafeInteger(data.version) || data.version <= submittedVersion ||
@@ -78,13 +80,15 @@ function setupReviewDraft() {
       const data = await request(body);
       version.value = String(data.version);
       savedFingerprint = snapshot;
+      unacknowledged = null;
       acknowledged = true;
       uncertain = false;
       if (isDirty()) setStatus("dirty", "仍有修改尚未暂存，即将继续保存…");
       else setStatus("saved", "已暂存到服务器");
       return true;
     } catch (error) {
-      uncertain = true;
+      if (error.rejected) unacknowledged = null;
+      uncertain = !error.rejected;
       halted = Boolean(error.conflict);
       window.clearTimeout(debounce);
       debounce = null;
@@ -106,7 +110,10 @@ function setupReviewDraft() {
       }
       if (!isDirty() && !uncertain && !force) return true;
       force = false;
-      const request = save(payload());
+      // A failed response may still have committed. Confirm the same form body
+      // first, then send any edits made while that save was outstanding.
+      if (!unacknowledged) unacknowledged = payload();
+      const request = save(unacknowledged);
       saving = request;
       const success = await request;
       if (saving === request) saving = null;
@@ -228,4 +235,45 @@ function setupReviewDraft() {
   });
 }
 
-document.addEventListener("DOMContentLoaded", setupReviewDraft);
+function setupDraftPlanning() {
+  document.querySelectorAll("[data-planning-review]").forEach(panel => {
+    const row = panel.closest("[data-review-row]");
+    const fields = panel.querySelectorAll("[data-plan-field]");
+    const planned = panel.querySelector("[data-plan-field='planned_for']");
+    const due = row.querySelector("input[name$='_due_date']");
+    const warning = panel.querySelector("[data-plan-warning]");
+    const showWarning = () => {
+      const iso = value => /^\d{4}-\d{2}-\d{2}$/.test(value || "");
+      warning.hidden = !(iso(planned.value) && iso(due?.value) && planned.value > due.value);
+    };
+    fields.forEach(field => {
+      const marker = panel.querySelector(`[data-plan-edited-for='${field.dataset.planField}']`);
+      if (marker) marker.value = field.dataset.planEdited === "true" ? "true" : "false";
+      ["input", "change"].forEach(event => field.addEventListener(event, () => {
+        field.dataset.planEdited = "true";
+        if (marker) marker.value = "true";
+        showWarning();
+      }));
+    });
+    due?.addEventListener("input", showWarning);
+    let plans = {};
+    try { plans = JSON.parse(panel.querySelector("script[type='application/json']").textContent); } catch (_) { /* Server form remains usable. */ }
+    const action = row.querySelector("[data-task-action]");
+    const target = row.querySelector("[data-existing-field] select");
+    const sync = () => {
+      const values = action?.value === "update" ? plans[target?.value] : {phase_id: "", planned_for: ""};
+      if (values) fields.forEach(field => {
+        if (field.dataset.planEdited !== "true") field.value = values[field.dataset.planField] || "";
+      });
+      showWarning();
+    };
+    target?.addEventListener("change", sync);
+    action?.addEventListener("change", sync);
+    showWarning();
+  });
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  setupDraftPlanning();
+  setupReviewDraft();
+});

@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page"><header class="page-head"><h1>更正具体进展 · {{ update.task.title }}</h1><a href="{% url 'meeting_history' update.meeting_note_id %}">返回会议追溯</a></header>
+<p>{{ update.meeting_note.title }} · 业务日期 {{ update.occurred_on|default:update.meeting_note.meeting_date }} · 进展 #{{ update.pk }}</p>
+<p>历史更正仅修正报告引用值。原进展和原会议文本永久保留；已有后续进展时不能覆盖当前任务。</p>
+<div class="surface"><h2>原值与当前值</h2><p>原进展：{{ original_status_label }} · {{ original.new_progress }}%</p><p>原本次完成：{{ original.completed_work }}</p><p>原下一步：{{ original.next_step }}</p><p>报告有效值：{{ effective_status_label }} · {{ effective.new_progress }}% · {{ effective.completed_work }} · {{ effective.next_step }}</p><p>当前任务：{{ update.task.get_status_display }} · {{ update.task.progress }}%</p><p>{{ update.task.current_note }}</p></div>
+{% if preview %}<section class="surface"><h2>拟更正值 · 最后核对</h2><p>原因：{{ preview.reason }}</p><p>拟更正状态：{{ proposed_status_label }} · {{ preview.proposed.new_progress }}%</p><p>本次完成：{{ preview.proposed.completed_work }}</p><p>下一步：{{ preview.proposed.next_step }}</p><p>{% if preview.apply_current %}同时更新当前任务（确认时重新检查冲突）{% else %}仅修正报告引用，不修改当前任务{% endif %}</p><form method="post">{% csrf_token %}<input type="hidden" name="confirmation" value="{{ confirmation }}"><button class="button primary">确认此条更正</button></form></section>{% endif %}
+<form method="post" class="surface form-grid">{% csrf_token %}{{ form.as_p }}<button class="button primary">核对拟更正值</button></form></div>
+{% endblock %}

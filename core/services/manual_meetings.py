@@ -45,6 +45,12 @@ def save_session(pk, version, state):
     count = MeetingSession.objects.filter(pk=pk, version=version, confirmed_at__isnull=True).update(
         version=version + 1, state=state, updated_at=timezone.now())
     if not count:
+        # A committed save may lose its response. Only the immediately following
+        # revision with the same normalized content can acknowledge that retry.
+        saved = MeetingSession.objects.select_related("meeting_note").filter(
+            pk=pk, version=version + 1, confirmed_at__isnull=True).first()
+        if saved is not None and saved.state == state:
+            return saved
         raise ManualMeetingError("草稿已更新或已确认，请保留当前内容并重新打开。", conflict=True)
     check_references(state)
     session = MeetingSession.objects.select_related("meeting_note").get(pk=pk)
@@ -116,6 +122,9 @@ def confirm_session(pk, version):
             completed_work=card.get("completed_work", ""), next_step=card.get("next_step", ""),
             occurred_on=business_date, applied_to_task=not preview["historical"], snapshot=row["snapshot"],
         )
+    from .risk_followups import confirm_followup
+    for followup in session.state.get("risk_followups", []):
+        confirm_followup(meeting_note=session.meeting_note, **followup)
     session.confirmed_at = timezone.now()
     session.minutes = preview["minutes"]
     session.save(update_fields=["confirmed_at", "minutes", "updated_at"])

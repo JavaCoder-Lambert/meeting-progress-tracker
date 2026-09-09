@@ -5,6 +5,7 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
 from core.services.database_backup import snapshot_database
+from core.services.runtime_status import record_backup_status
 
 
 class Command(BaseCommand):
@@ -21,4 +22,8 @@ class Command(BaseCommand):
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
         output = options["output"] or Path(settings.DATA_DIR) / "backups" / f"tracker-{timestamp}.sqlite3"
         path, checksum = snapshot_database(database["NAME"], output)
+        try:
+            record_backup_status(path, checksum)
+        except OSError:
+            self.stderr.write("快照已成功，但最近备份状态未能更新；请保留下方路径和校验值。")
         self.stdout.write(self.style.SUCCESS(f"备份完成：{path}\nSHA256：{checksum}"))

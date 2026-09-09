@@ -1,5 +1,6 @@
 # Standalone server stack: do not merge this with docker-compose.yml.
 x-app-environment: &app-environment
+  APP_VERSION: ${APP_VERSION:-development}
   DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?请在 .env.server 中设置 DJANGO_SECRET_KEY}
   DJANGO_DEBUG: "false"
   DJANGO_SECURE_SSL_REDIRECT: "true"
@@ -10,13 +11,15 @@ x-app-environment: &app-environment
   LLM_MODEL: ${LLM_MODEL:-}
   LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-180}
   SECURE_HSTS_SECONDS: ${SECURE_HSTS_SECONDS:-31536000}
+  LOGIN_TRUSTED_PROXY_CIDRS: ${TRACKER_PROXY_IP:-172.30.7.2}/32
 
 x-app-service: &app-service
-  image: meeting-progress-tracker:server
+  image: meeting-progress-tracker:${IMAGE_TAG:-server}
   build:
     context: .
     args:
       PYPI_INDEX_URL: ${PYPI_INDEX_URL:-https://pypi.org/simple}
+      APP_VERSION: ${APP_VERSION:-development}
   restart: unless-stopped
   init: true
   volumes:
@@ -30,6 +33,9 @@ x-app-service: &app-service
 services:
   app:
     <<: *app-service
+    networks:
+      - default
+      - login_proxy
     expose:
       - "8000"
     environment:
@@ -38,7 +44,7 @@ services:
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?请在 .env.server 中设置 ADMIN_PASSWORD}
       GUNICORN_TIMEOUT: ${GUNICORN_TIMEOUT:-60}
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; r=urllib.request.Request('http://127.0.0.1:8000/health/', headers={'X-Forwarded-Proto':'https'}); urllib.request.urlopen(r, timeout=3)"]
+      test: ["CMD", "python", "-c", "import urllib.request; r=urllib.request.Request('http://127.0.0.1:8000/ready/', headers={'X-Forwarded-Proto':'https'}); urllib.request.urlopen(r, timeout=3)"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -60,6 +66,9 @@ services:
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
+    networks:
+      login_proxy:
+        ipv4_address: ${TRACKER_PROXY_IP:-172.30.7.2}
     ports:
       - "80:80"
       - "443:443"
@@ -79,6 +88,12 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+networks:
+  login_proxy:
+    ipam:
+      config:
+        - subnet: ${TRACKER_PROXY_SUBNET:-172.30.7.0/29}
 
 volumes:
   tracker_data:

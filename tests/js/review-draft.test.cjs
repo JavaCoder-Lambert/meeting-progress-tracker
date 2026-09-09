@@ -65,7 +65,7 @@ const deferred = () => {
   return {promise, resolve};
 };
 
-function review(fetch, {pauseReplay = false} = {}) {
+function review(fetch, {pauseReplay = false, withPlanning = false} = {}) {
   const document = new Document();
   const title = el('input', {name: 'task_0_title', value: '跟进报价'});
   const version = el('input', {type: 'hidden', name: 'review_version', value: '0'});
@@ -86,6 +86,17 @@ function review(fetch, {pauseReplay = false} = {}) {
     title, version, baseline, existing, el('input', {name: 'csrfmiddlewaretoken', value: 'csrf-token'}),
     el('div', {'data-review-summary': ''}), el('p', {'data-review-empty': ''}), save, confirm, create, status);
   const link = el('a', {href: '/projects/'});
+  if (withPlanning) {
+    const plans = el('script', {type:'application/json'}); plans.textContent='{}';
+    form.append(el('details', {class:'review-item','data-review-row':''},
+      el('select', {name:'task_0_action','data-task-action':'',value:'ignore'}),
+      el('details', {'data-planning-review':''},
+        el('input', {type:'hidden',name:'task_0_phase_edited','data-plan-edited-for':'phase_id',value:''}),
+        el('input', {type:'hidden',name:'task_0_planned_for_edited','data-plan-edited-for':'planned_for',value:''}),
+        el('select', {name:'task_0_phase','data-plan-field':'phase_id','data-plan-edited':'false',value:''}),
+        el('input', {name:'task_0_planned_for','data-plan-field':'planned_for','data-plan-edited':'false',value:''}),
+        el('p', {'data-plan-warning':''}), plans)));
+  }
   document.body.append(form, link);
   events(document);
   const createElement = document.createElement.bind(document);
@@ -150,6 +161,18 @@ test('edits debounce into acknowledged server drafts with native form fields', a
   assert.equal(ui.version.value, '1');
   assert.equal(ui.status.dataset.state, 'saved');
   assert.match(ui.status.textContent, /已暂存/);
+});
+
+test('planning initialization leaves an untouched review clean and does not save on navigation', async () => {
+  const ui=review(undefined,{withPlanning:true});
+  assert.equal(new BrowserFormData(ui.form).get('task_0_phase_edited'),'false');
+  assert.equal(new BrowserFormData(ui.form).get('task_0_planned_for_edited'),'false');
+  assert.equal(fire(ui.window,'beforeunload').defaultPrevented,false);
+  assert.equal(fire(ui.link,'click',{button:0}).defaultPrevented,false);
+  ui.tick(700); await settle();
+  assert.equal(ui.requests.length,0);
+  assert.equal(ui.version.value,'0');
+  assert.notEqual(ui.status.dataset.state,'dirty');
 });
 
 test('edits during a request are saved serially with the acknowledged revision', async () => {
@@ -399,4 +422,49 @@ test('saved submission resumes in a later task and saves edits made before that 
   assert.equal(ui.submissions.length, 1);
   assert.equal(ui.submissions[0].submitter, ui.create);
   assert.ok(ui.submissions[0].fields.some(([name, value]) => name === 'review_version' && value === '2'));
+});
+
+for (const newer of ['等待回包时又有输入', '跟进报价']) test(`review retries the unacknowledged form before saving ${newer}`, async () => {
+  let serverVersion = 0;
+  let committed = null;
+  const ui = review((_url, {body}, count) => {
+    const version = Number(body.get('review_version'));
+    const title = body.get('task_0_title');
+    if (version === serverVersion) { serverVersion++; committed = title; }
+    else if (version + 1 !== serverVersion || title !== committed) {
+      return Promise.resolve(response(serverVersion, {ok: false, status: 409,
+        json: async () => ({ok: false, message: '草稿已在其他页面修改'})}));
+    }
+    if (count === 1) return Promise.reject(new Error('response lost after commit'));
+    return Promise.resolve(response(serverVersion));
+  });
+  ui.edit('第一版'); ui.tick(700);
+  ui.edit(newer);
+  await settle();
+  assert.equal(ui.version.value, '0');
+  assert.equal(ui.status.dataset.state, 'failed');
+  assert.equal(fire(ui.window, 'beforeunload').defaultPrevented, true);
+  ui.form.requestSubmit(ui.confirm);
+  await settle();
+  assert.equal(ui.status.dataset.state, 'saved');
+  assert.equal(ui.version.value, '2');
+  assert.equal(committed, newer);
+  assert.deepEqual(ui.requests.map(({options: {body}}) => [body.get('review_version'), body.get('task_0_title')]),
+    [['0', '第一版'], ['0', '第一版'], ['1', newer]]);
+  assert.equal(ui.submissions.length, 1);
+  assert.equal(fire(ui.window, 'beforeunload').defaultPrevented, false);
+});
+
+test('a rejected review draft saves corrected form values on retry', async () => {
+  const ui = review((_url, {body}) => Promise.resolve(body.get('task_0_title') === '无效输入'
+    ? response(0, {ok: false, status: 400, json: async () => ({ok: false, message: '请修正输入'})})
+    : response(1)));
+  ui.edit('无效输入'); ui.tick(700);
+  await settle();
+  assert.equal(ui.status.dataset.state, 'failed');
+  ui.edit('修正后输入'); ui.form.requestSubmit(ui.save);
+  await settle();
+  assert.equal(ui.status.dataset.state, 'saved');
+  assert.equal(ui.version.value, '1');
+  assert.equal(ui.requests[1].options.body.get('task_0_title'), '修正后输入');
 });

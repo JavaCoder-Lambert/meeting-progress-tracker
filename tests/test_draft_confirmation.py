@@ -84,6 +84,10 @@ def test_a_meeting_cannot_import_more_than_one_draft(draft):
 
 @pytest.mark.django_db
 def test_update_does_not_clear_existing_optional_details_with_empty_ai_values(draft):
+    from django.utils import timezone
+    from core.services.ai_history import task_baseline
+    draft.meeting_note.meeting_date = timezone.localdate()
+    draft.meeting_note.save(update_fields=["meeting_date"])
     project = Project.objects.create(name="SKU改造")
     existing = Task.objects.create(
         project=project,
@@ -104,7 +108,8 @@ def test_update_does_not_clear_existing_optional_details_with_empty_ai_values(dr
 
     confirm_draft(
         draft.id,
-        {"tasks": [{"action": "update", "project_id": project.id, "task_id": existing.id}]},
+        {"tasks": [{"action": "update", "project_id": project.id, "task_id": existing.id,
+                    "task_baseline": task_baseline(existing, draft)}]},
         payload=payload,
     )
 

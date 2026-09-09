@@ -1,12 +1,15 @@
 """Persist unfinished review edits separately from the original AI result."""
 from copy import copy, deepcopy
+from hashlib import sha256
+import json
 
 from django.core import signing
 from django.utils import timezone
 
-from core.models import ImportDraft
+from core.models import ImportDraft, Task
+from .ai_history import task_baseline
 from .draft_review import build_draft_review
-from .task_payload import task_provided_fields
+from .task_payload import TASK_DEFAULTS, task_provided_fields
 
 
 class ReviewConflict(ValueError):
@@ -74,11 +77,27 @@ def read_review_submission(draft, post):
                 provided.add(field)
             item[field] = value
         item["_provided_fields"] = sorted(provided)
+        planning_baseline = (signed_rows[index] if signed_rows is not None else rows[index])
+        planning_provided = set(planning_baseline.get("planning_provided", []))
+        planning = dict(rows[index]["planning"])
+        for field, suffix in (("phase_id", "phase"), ("planned_for", "planned_for")):
+            if f"task_{index}_{suffix}" in post:
+                value = post.get(f"task_{index}_{suffix}", "")
+                edited = post.get(f"task_{index}_{suffix}_edited", "")
+                # JS records explicit edits separately from target autofill. An
+                # empty marker preserves the native/no-JS value-difference path.
+                if edited == "true" or (edited != "false" and value != planning_baseline.get("planning", {}).get(field, "")):
+                    planning_provided.add(field)
+                planning[field] = value
         decisions["tasks"].append({
             "action": post.get(f"task_{index}_action"),
             "project_id": post.get(f"task_{index}_project") or None,
             "assignee_id": post.get(f"task_{index}_assignee") or None,
             "task_id": post.get(f"task_{index}_existing") or None,
+            "planning": planning,
+            "planning_provided": sorted(planning_provided),
+            "task_baseline": (signed_rows[index].get("task_baselines", {}).get(
+                str(post.get(f"task_{index}_existing") or ""), "") if signed_rows is not None else ""),
         })
     for kind in ("risks", "milestones"):
         for index, item in enumerate(payload.get(kind, [])):
@@ -92,9 +111,39 @@ def read_review_submission(draft, post):
     return payload, decisions
 
 
-def persist_review(draft, payload, decisions):
+def refresh_task_baselines(draft, payload, decisions):
+    for item, row in zip(payload.get("tasks", []), decisions.get("tasks", []), strict=True):
+        if row.get("action") != "update" or not row.get("task_id"):
+            continue
+        try:
+            task = Task.objects.select_related("project", "assignee").get(pk=row["task_id"])
+        except (Task.DoesNotExist, ValueError) as exc:
+            raise ValueError("关联任务不存在，请重新选择。") from exc
+        row["task_baseline"] = task_baseline(task, draft)
+        for field in TASK_DEFAULTS:
+            if field not in task_provided_fields(item):
+                item[field] = getattr(task, field)
+
+
+def review_save_digest(post):
+    # Preserve the submitted signed baseline and all form choices. Re-reading a
+    # retry against saved payload could reinterpret which values were edited.
+    fields = sorted((key, post.getlist(key)) for key in post if key not in {"csrfmiddlewaretoken", "review_version"})
+    return sha256(json.dumps(fields, ensure_ascii=False, separators=(",", ":")).encode()).hexdigest()
+
+
+def is_saved_review_retry(draft, version, digest):
+    receipt = (draft.review_state or {}).get("save_receipt", {})
+    return (receipt.get("version") == draft.review_version - 1
+            and str(version) == str(receipt.get("version"))
+            and receipt.get("digest") == digest)
+
+
+def persist_review(draft, payload, decisions, *, save_digest=None):
     # Caller holds the transaction/lock, so version and content move together.
     draft.review_state = {"payload": payload, "decisions": decisions}
+    if save_digest is not None:
+        draft.review_state["save_receipt"] = {"version": draft.review_version, "digest": save_digest}
     draft.review_saved_at = timezone.now()
     draft.review_version += 1
     draft.save(update_fields=["review_state", "review_saved_at", "review_version"])

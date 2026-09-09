@@ -1,0 +1,30 @@
+.task-editor { max-width: 960px; }
+.task-editor .page-head { margin-bottom: 20px; }
+.task-editor .page-head h1 { margin-bottom: 6px; }
+.task-editor-form { padding: 24px; }
+.task-fields-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 16px 18px; }
+.task-field { grid-column: span 2; min-width: 0; }
+.task-field label { display: block; margin-bottom: 6px; font-size: 13px; font-weight: 600; }
+.task-field input, .task-field select, .task-field textarea { width: 100%; margin: 0; }
+.task-field textarea { min-height: 76px; resize: vertical; }
+.task-field-title, .task-field-current_note, .task-field-description { grid-column: 1 / -1; }
+.task-field-due_date, .task-field-planned_for, .task-field-planned_start_date, .task-field-acceptance_date { grid-column: span 3; }
+.task-field .helptext { display: block; margin-top: 5px; font-size: 12px; }
+.task-editor .required-mark { color: var(--muted, #74796c); }
+.task-advanced { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line, #e1e5da); }
+.task-advanced summary { cursor: pointer; font-weight: 600; font-size: 14px; }
+.task-advanced[open] .task-fields-grid { margin-top: 16px; }
+.task-editor-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 10px; margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line, #e1e5da); }
+.task-current-state { padding: 18px; margin-bottom: 20px; background: #f6f7f2; border: 1px solid #d9dfcc; border-radius: 10px; }
+.task-current-state h2 { font-size: 16px; }
+.task-current-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 18px; margin: 14px 0; }
+.task-current-grid dt { color: var(--muted, #68715b); font-size: 12px; }
+.task-current-grid dd { margin: 3px 0 0; overflow-wrap: anywhere; }
+.task-current-wide { grid-column: 1 / -1; }
+@media (max-width: 640px) {
+  .task-editor-form { padding: 18px; }
+  .task-fields-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 12px; }
+  .task-field { grid-column: span 1; }
+  .task-field-title, .task-field-project, .task-field-current_note, .task-field-description { grid-column: 1 / -1; }
+  .task-current-grid { grid-template-columns: 1fr; }
+}

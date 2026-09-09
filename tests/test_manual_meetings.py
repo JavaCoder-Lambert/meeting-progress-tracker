@@ -5,7 +5,7 @@ from uuid import uuid4
 import pytest
 from django.utils import timezone
 
-from core.models import MeetingNote, Person, ProgressUpdate, Project, Risk, Task
+from core.models import MeetingNote, Person, ProgressUpdate, Project, ProjectPhase, Risk, Task
 from core.services.manual_meetings import (
     ManualMeetingError, confirm_session, create_session, preview_session,
     save_session, serialize_session, task_option,
@@ -117,6 +117,32 @@ def test_preview_and_minutes_include_deadlines_planning_and_new_task_description
     assert due in preview["items"][0]["summary"]
     assert planned in preview["minutes"]
     assert "不能遗漏的任务说明" in preview["minutes"]
+
+
+def test_new_task_phase_survives_draft_resume_and_confirmation(task):
+    phase = ProjectPhase.objects.create(project=task.project, name="联调验收")
+    draft = create_session(state(items=[item(kind="new_task", title="新增校验", project_id=task.project_id,
+        phase_id=phase.pk)]))
+    saved = save_session(draft.pk, 0, draft.state)
+    saved.refresh_from_db()
+    assert serialize_session(saved)["state"]["items"][0]["phase_id"] == phase.pk
+    assert "联调验收" in preview_session(saved)["minutes"]
+    confirm_session(saved.pk, saved.version)
+    created = Task.objects.get(title="新增校验")
+    assert created.phase_id == phase.pk
+
+
+def test_phase_from_another_project_cannot_replace_the_saved_draft(task):
+    other_phase = ProjectPhase.objects.create(project=Project.objects.create(name="另一项目"), name="发布")
+    draft = create_session(state(items=[item(kind="new_task", title="旧草稿", project_id=task.project_id)]))
+    changed = deepcopy(draft.state)
+    changed["items"][0]["phase_id"] = other_phase.pk
+    with pytest.raises(ManualMeetingError, match="阶段必须属于"):
+        save_session(draft.pk, 0, changed)
+    draft.refresh_from_db()
+    assert draft.version == 0 and not draft.state["items"][0].get("phase_id")
+    confirm_session(draft.pk, draft.version)
+    assert Task.objects.get(title="旧草稿").phase_id is None
 
 
 @pytest.mark.parametrize("changes", [

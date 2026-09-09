@@ -5,11 +5,15 @@ RUN addgroup --system app && adduser --system --ingroup app app && mkdir -p /app
 WORKDIR /app
 COPY requirements.txt ./
 RUN pip install --no-cache-dir --retries 6 --timeout 60 --index-url "$PYPI_INDEX_URL" -r requirements.txt
+ARG APP_VERSION=development
+LABEL org.opencontainers.image.revision=$APP_VERSION
+ENV APP_VERSION=$APP_VERSION
 COPY manage.py ./
 COPY tracker tracker
 COPY core core
 COPY templates templates
 COPY static static
+COPY docs ./docs
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh && DJANGO_SECRET_KEY=build-only-static-collection-not-a-runtime-secret-key-1234567890 python manage.py collectstatic --noinput
 USER app

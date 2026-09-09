@@ -1,18 +1,26 @@
 {% extends "base.html" %}{% load static %}
-{% block title %}新建会议 · 进度台{% endblock %}
+{% block title %}{% if source_session %}准备下次会议{% else %}新建会议{% endif %} · 进度台{% endblock %}
 {% block content %}
 <link rel="stylesheet" href="{% static 'css/meeting-workspace.css' %}">
 <div class="page mw-create">
-  <header class="mw-intro"><span class="eyebrow">会议工作台 / 新建</span><h1>从一次对齐，<br>到下一步行动。</h1><p>按人员逐项记录进度。会中自动暂存，结束后统一核对确认。</p><ol class="mw-steps"><li><strong>准备会议</strong><span>确定主题与汇报范围</span></li><li><strong>逐项记录</strong><span>进度、风险和下一步</span></li><li><strong>核对确认</strong><span>更新项目，生成会议纪要</span></li></ol><a class="draft-reference-button" href="{% url 'meeting_create' %}">已有会议原文？使用粘贴 / AI 解析</a></header>
+  <header class="mw-create-header"><div><h1>{% if source_session %}准备下次会议{% else %}新建会议{% endif %}</h1><p class="muted">填写主题和日期，即可开始逐项记录。</p></div><a class="button quiet" href="{% url 'meeting_create' %}">粘贴原文 / AI 解析</a></header>
+  {% if source_session %}<div class="mw-continuation-context"><p>接续 <a href="{% url 'manual_meeting_workspace' source_session.pk %}">{{ source_session.meeting_note.title }}</a> · <time datetime="{{ source_session.meeting_note.meeting_date|date:'Y-m-d' }}">{{ source_session.meeting_note.meeting_date|date:"Y-m-d" }}</time></p><p class="muted">沿用主题、项目和人员；{{ continuation_count }} 项未完成任务将以最新进度加入，等待本次询问。</p></div>{% endif %}
+  <div class="mw-create-layout">
   <form method="post" class="mw-create-form" data-meeting-create>{% csrf_token %}
-    <h2>会议信息</h2><p class="muted">先填写主题和日期，其余内容可以在会中补充。</p>
     {{ form.non_field_errors }}
+    {% if source_project %}<div class="mw-continuation-context"><p>从 <a href="{% url 'project_detail' source_project.pk %}">{{ source_project.name }}</a> 开始会议</p><label class="check-field"><input type="checkbox" name="include_project_tasks" {% if include_project_tasks %}checked{% endif %}>带入该项目的 {{ project_task_count }} 项未完成任务</label><p class="muted">使用最新进度作为询问起点，不沿用上次汇报内容。取消关联此项目后，不会带入任务。</p></div>{% endif %}
     <div class="field"><label for="{{ form.title.id_for_label }}">会议主题</label>{{ form.title }}{{ form.title.errors }}</div>
     <div class="mw-fields"><div class="field"><label for="{{ form.meeting_date.id_for_label }}">日期</label>{{ form.meeting_date }}{{ form.meeting_date.errors }}</div><div class="field"><label for="{{ form.meeting_time.id_for_label }}">开始时间 · 选填</label>{{ form.meeting_time }}{{ form.meeting_time.errors }}</div></div>
     <div class="field"><label for="{{ form.agenda.id_for_label }}">议题 · 选填</label>{{ form.agenda }}{{ form.agenda.errors }}</div>
-    <details class="mw-details" {% if form.projects.errors or form.people.errors %}open{% endif %}><summary>设置关联项目与汇报人员 <span>选填</span></summary><div class="mw-fields"><div class="field"><label for="{{ form.projects.id_for_label }}">关联项目</label>{{ form.projects }}{{ form.projects.errors }}</div><div class="field"><label for="{{ form.people.id_for_label }}">汇报人员</label>{{ form.people }}{{ form.people.errors }}</div></div><small>可多选；也可以进入工作台后添加。</small></details>
+    <details class="mw-details" {% if source_session or source_project or form.projects.errors or form.people.errors %}open{% endif %}><summary>关联项目与汇报人员 <span>选填，可在会中补充</span></summary><div class="mw-fields"><fieldset class="mw-checkboxes"><legend>关联项目</legend>{{ form.projects }}{{ form.projects.errors }}</fieldset><fieldset class="mw-checkboxes"><legend>汇报人员</legend>{{ form.people }}{{ form.people.errors }}</fieldset></div></details>
     <div class="mw-create-actions"><a href="{% url 'meeting_list' %}" class="button quiet">取消</a><button type="submit" class="button primary" data-submit-label="正在创建">进入会议工作台</button></div>
   </form>
+  <aside class="mw-create-support" aria-label="会议准备辅助">
+    {% if recent_sessions %}<section aria-labelledby="recent-meetings-heading"><h2 id="recent-meetings-heading">接着上次会议开</h2><p class="muted">沿用会议范围，继续跟进未完成任务。</p><ul class="mw-recent-meetings">{% for previous in recent_sessions %}<li><a href="{% url 'manual_meeting_continue' previous.pk %}"><strong>{{ previous.meeting_note.title }}</strong><span><time datetime="{{ previous.meeting_note.meeting_date|date:'Y-m-d' }}">{{ previous.meeting_note.meeting_date|date:"Y-m-d" }}</time> · 准备下次会议</span></a></li>{% endfor %}</ul></section>{% endif %}
+    <details class="mw-details mw-create-guide"><summary>如何记录一次会议</summary><ol><li>按人员选择已有任务，记录进展和下一步。</li><li>随时补充任务、风险或待决策事项，修改会自动暂存。</li><li>结束后核对并确认，保存纪要、更新项目进展。</li></ol></details>
+    {% if source_session %}<a class="draft-reference-button" href="{% url 'manual_meeting_create' %}">改为新建空白会议</a>{% endif %}
+  </aside>
+  </div>
 </div>
 <script src="{% static 'js/meeting-workspace.js' %}" defer></script>
 {% endblock %}

@@ -1,4 +1,6 @@
 from datetime import timedelta
+import logging
+import time
 from uuid import uuid4
 
 from django.conf import settings
@@ -8,6 +10,9 @@ from django.utils import timezone
 
 from core.models import ImportDraft, MeetingNote, ParseJob
 from .llm_client import LLMParseError, generate_meeting_payload, validate_llm_config
+
+
+logger = logging.getLogger(__name__)
 
 
 IMPORTED_ERROR = "该会议已入库，请查看已入库结果；如有新的进展，请新建会议记录。"
@@ -114,15 +119,47 @@ def run_next_job():
     job = claim_next_job()
     if job is None:
         return False
+    total_started = time.monotonic()
+    result_payload = {}
     try:
-        if _is_imported(job.meeting_note):
-            raise LLMParseError(IMPORTED_ERROR)
-        content, payload = generate_meeting_payload(job.meeting_note)
-    except LLMParseError as exc:
-        finish_job(job, error=str(exc))
-    except Exception:
-        # Never persist provider response objects, API keys, or tracebacks.
-        finish_job(job, error="解析暂时未能完成，记录已保存。请稍后重试。")
-    else:
-        finish_job(job, content=content, payload=payload)
-    return True
+        try:
+            if _is_imported(job.meeting_note):
+                raise LLMParseError(IMPORTED_ERROR)
+            content, payload = generate_meeting_payload(job.meeting_note)
+        except LLMParseError as exc:
+            persistence_started = time.monotonic()
+            try:
+                finish_job(job, error=str(exc))
+            finally:
+                _log_persistence(job, persistence_started, result_payload)
+        except Exception:
+            # Never persist provider response objects, API keys, or tracebacks.
+            persistence_started = time.monotonic()
+            try:
+                finish_job(job, error="解析暂时未能完成，记录已保存。请稍后重试。")
+            finally:
+                _log_persistence(job, persistence_started, result_payload)
+        else:
+            persistence_started = time.monotonic()
+            result_payload = payload
+            try:
+                finish_job(job, content=content, payload=payload)
+            finally:
+                _log_persistence(job, persistence_started, result_payload)
+        return True
+    finally:
+        _log_stage("total", job, total_started, result_payload)
+
+
+def _log_persistence(job, started, payload):
+    _log_stage("persistence", job, started, payload)
+
+
+def _log_stage(stage, job, started, payload):
+    logger.info("LLM parsing stage completed", extra={
+        "parse_stage": stage, "meeting_note_id": job.meeting_note_id,
+        "duration_ms": round((time.monotonic() - started) * 1000, 3),
+        "task_count": len(payload.get("tasks", [])), "risk_count": len(payload.get("risks", [])),
+        "milestone_count": len(payload.get("milestones", [])),
+        "uncertainty_count": len(payload.get("uncertainties", [])),
+    })

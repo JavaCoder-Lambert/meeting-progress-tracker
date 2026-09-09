@@ -1,0 +1,5 @@
+.weekplan-choice { display: grid; gap: .5rem; padding: 1rem 0; border-bottom: 1px solid var(--line); }
+.weekplan-choice label:first-child { min-height: 44px; display: flex; align-items: center; gap: .5rem; }
+.weekplan-review { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; padding: 1rem 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+.weekplan-review > div { min-width: 0; }
+@media (max-width: 900px) { .weekplan-review { grid-template-columns: 1fr; gap: .5rem; } }

@@ -92,8 +92,12 @@ def test_save_create_reference_and_return_keeps_review(admin_client, draft, kind
 
 
 def test_saved_review_requires_final_confirmation_and_preserves_explicit_zero(admin_client, draft):
+    from django.utils import timezone
+    draft.meeting_note.meeting_date = timezone.localdate()
+    draft.meeting_note.save(update_fields=["meeting_date"])
     project = Project.objects.create(name="新项目")
-    Task.objects.create(project=project, title="接口开发", progress=60, status="in_progress")
+    person = Person.objects.create(name="新同事")
+    Task.objects.create(project=project, assignee=person, title="接口开发", progress=60, status="in_progress")
     task = Task.objects.get()
     data = submission(admin_client, draft, task_0_action="update", task_0_existing=task.pk,
                       task_0_project=project.pk, task_0_due_date="", risks_0_action="ignore",

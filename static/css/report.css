@@ -1,0 +1,27 @@
+.report-period { margin: 12px 0 24px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.report-project { margin: 0 0 28px; }
+.report-project > h2 { margin-bottom: 4px; overflow-wrap: anywhere; }
+.report-task { padding: 20px 0; border-bottom: 1px solid var(--line); min-width: 0; }
+.report-task-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.report-task-heading h3 { margin-bottom: 10px; overflow-wrap: anywhere; }
+.report-task-heading a { flex-shrink: 0; font-size: 13px; min-height: 44px; display: inline-flex; align-items: center; }
+.report-task-state { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 16px; font-size: 13px; font-variant-numeric: tabular-nums; }
+.report-task-summary { display: grid; grid-template-columns: 76px minmax(0, 1fr); column-gap: 12px; row-gap: 10px; margin: 0; }
+.report-task-summary dt { font-weight: 650; }
+.report-task-summary dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; max-width: 75ch; }
+.report-work { margin: 0; padding-left: 20px; }
+.report-work li + li { margin-top: 4px; }
+.report-history { margin-top: 12px; }
+.report-history summary { width: fit-content; min-height: 44px; padding: 10px 0; cursor: pointer; color: var(--accent); font-size: 13px; }
+.report-history ol { margin: 4px 0 0; padding-left: 24px; }
+.report-history li { padding: 10px 0; }
+.report-history li + li { border-top: 1px solid var(--line); }
+.report-history-meta { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 6px; color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+.report-history-text { margin-bottom: 4px; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; max-width: 75ch; }
+.report-supplement { margin-top: 24px; }
+.report-supplement ul { margin-bottom: 0; padding-left: 20px; }
+.report-supplement li { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; }
+@media (max-width: 620px) {
+  .report-task-summary { grid-template-columns: minmax(0, 1fr); row-gap: 6px; }
+  .report-task-summary dd + dt { margin-top: 8px; }
+}

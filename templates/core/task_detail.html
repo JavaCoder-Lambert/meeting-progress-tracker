@@ -4,22 +4,25 @@
   <div class="page">
     <div class="page-head">
       <div>
-        <a class="back-link" href="{% url 'task_list' %}">← 返回任务中心</a>
+        <a class="back-link" href="{{ return_url }}">← 返回原页面</a>
         <span class="eyebrow">{{ task.project.name }} · {{ task.get_priority_display }}</span>
         <h1>{{ task.title }}</h1>
         <p class="muted">负责人：{{ task.assignee.name|default:"未指定" }} · 截止：{% if task.due_date %}<time datetime="{{ task.due_date|date:"Y-m-d" }}">{{ task.due_date }}</time>{% else %}未设置{% endif %}</p>
       </div>
-      <a class="button" href="{% url 'task_edit' task.pk %}">完整编辑</a>
+      <a class="button" href="{% url 'task_edit' task.pk %}?next={{ return_url|urlencode }}">完整编辑</a>
     </div>
 
     <div class="grid two">
-      <section aria-labelledby="progress-update-title">
+      <section id="progress-title" aria-labelledby="progress-update-title">
         <div class="surface">
           <div class="section-head"><div><span class="section-kicker">主要操作</span><h2 id="progress-update-title">记录本次进展</h2></div></div>
           <form method="post" action="{% url 'task_progress_update' task.pk %}" class="form-grid">
             {% csrf_token %}
-            {% if progress_form.errors %}<div class="alert error" role="alert">请修正后再保存。本次进展未写入。</div>{% endif %}
-            {% for field in progress_form %}
+            {{ progress_form.task_baseline }}
+            <input type="hidden" name="next" value="{{ return_url }}">
+            {% if progress_form.errors %}<div class="alert error" role="alert">请修正后再保存。本次进展未写入。{{ progress_form.task_baseline.errors }}</div>{% endif %}
+            {% if conflict or reviewing %}<div class="alert" role="status"><p>当前已保存：{{ task.get_status_display }} · {{ task.progress }}%；截止 {{ task.due_date|date:'Y-m-d'|default:'未设置' }}；安排 {{ task.planned_for|date:'Y-m-d'|default:'未设置' }}。</p>{% if task.current_note %}<p>当前说明：{{ task.current_note }}</p>{% endif %}<p>{% if reviewing %}当前数据已载入供核对。填写仍保留，请对照调整后再保存。{% else %}填写仍保留，请重新核对当前任务。{% endif %}</p>{% if conflict %}<button class="button" type="submit" name="intent" value="review_current" formnovalidate>保留填写，重新核对当前任务</button>{% endif %}<a href="{% url 'task_detail' task.pk %}" target="_blank" rel="noopener">查看最新任务 ↗</a></div>{% endif %}
+            {% for field in progress_form.visible_fields %}
               <p>
                 <label for="{{ field.id_for_label }}">{{ field.label }}</label>
                 {{ field.errors }}
@@ -27,7 +30,7 @@
               </p>
             {% endfor %}
             {% if progress_form.non_field_errors %}{{ progress_form.non_field_errors }}{% endif %}
-            <button class="button primary" type="submit">保存本次进展</button>
+            <button class="button primary" type="submit"{% if conflict %} disabled{% endif %}>{% if reviewing %}确认核对并保存进展{% else %}保存本次进展{% endif %}</button>
           </form>
         </div>
 
@@ -51,7 +54,8 @@
       </section>
 
       <aside>
-        <section class="surface" aria-labelledby="schedule-title"><span class="section-kicker">工作计划</span><h2 id="schedule-title">安排推进日期</h2><p class="muted">{{ task.phase.name|default:'未归属阶段' }}</p><form method="post" action="{% url 'task_schedule' task.pk %}" class="form-grid">{% csrf_token %}<input type="hidden" name="next" value="{{ request.path }}"><label for="task-plan-date">安排日期</label><input id="task-plan-date" type="date" name="planned_for" value="{{ task.planned_for|date:'Y-m-d' }}"><p class="helptext">安排表示准备哪天推进，不会改变截止日期。</p><div class="action-group"><button class="button primary" name="action" value="date" type="submit">保存安排</button><button class="button quiet" name="action" value="today" type="submit">今天</button><button class="button quiet" name="action" value="clear" type="submit">取消安排</button></div></form></section>
+        {% if task.schedule_after_deadline %}<p class="alert" role="status">安排日期晚于交付截止日期，请确认是否需要提前推进。</p>{% endif %}
+        <section class="surface" aria-labelledby="schedule-title"><span class="section-kicker">工作计划</span><h2 id="schedule-title">安排推进日期</h2><p class="muted">{{ task.phase.name|default:'未归属阶段' }}</p><form method="post" action="{% url 'task_schedule' task.pk %}" class="form-grid">{% csrf_token %}<input type="hidden" name="task_baseline" value="{{ task_baseline }}"><input type="hidden" name="next" value="{% url 'task_detail' task.pk %}?next={{ return_url|urlencode }}"><label for="task-plan-date">安排日期</label><input id="task-plan-date" type="date" name="planned_for" value="{{ task.planned_for|date:'Y-m-d' }}"><p class="helptext">安排表示准备哪天推进，不会改变截止日期。</p><div class="action-group"><button class="button primary" name="action" value="date" type="submit">保存安排</button><button class="button quiet" name="action" value="today" type="submit">今天</button><button class="button quiet" name="action" value="clear" type="submit">取消安排</button></div></form></section>
         <section class="surface" aria-labelledby="task-summary-title">
           <span class="section-kicker">任务摘要</span><h2 id="task-summary-title">当前状态</h2>
           <p><span class="badge status-{{ task.status }}">{{ task.get_status_display }}</span>　{{ task.progress }}%</p>

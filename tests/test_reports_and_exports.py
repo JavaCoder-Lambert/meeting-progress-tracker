@@ -123,11 +123,11 @@ def test_json_export_preserves_manual_draft_and_occurrence_fields(admin_client):
 
 
 @pytest.mark.django_db
-def test_quick_done_without_narrative_still_appears_in_weekly_completed_section():
+def test_quick_done_without_narrative_still_appears_in_weekly_progress_section():
     project = Project.objects.create(name="SKU")
     task = Task.objects.create(project=project, title="完成链路验收", status=Task.Status.DONE, progress=100)
     ProgressUpdate.objects.create(task=task, new_status=Task.Status.DONE, new_progress=100,
                                   occurred_on=date(2026, 9, 6), snapshot={"title": "完成链路验收", "project_name": "SKU"})
     report = build_weekly_report(date(2026, 9, 6), date(2026, 9, 6)).markdown
-    completed_section = report.split("### 本期完成\n", 1)[1].split("### 进行中", 1)[0]
-    assert "完成链路验收" in completed_section
+    progress_section = report.split("### 本期进展\n", 1)[1].split("### 进行中", 1)[0]
+    assert "完成链路验收（已完成）" in progress_section

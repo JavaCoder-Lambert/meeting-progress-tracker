@@ -1,0 +1,17 @@
+<details class="planning-review"{% if row.planning_provided %} open{% endif %} data-planning-review>
+  <summary>归入项目计划{% if row.planning.phase_id or row.planning.planned_for %} · 已有安排{% else %} · 可选{% endif %}</summary>
+  <p class="helptext">更新任务时保留原有安排。修改或清空才会调整，不改变交付截止日期。</p>
+  <input type="hidden" name="task_{{ index }}_phase_edited" data-plan-edited-for="phase_id" value="{% if 'phase_id' in row.planning_provided %}true{% endif %}">
+  <input type="hidden" name="task_{{ index }}_planned_for_edited" data-plan-edited-for="planned_for" value="{% if 'planned_for' in row.planning_provided %}true{% endif %}">
+  <div class="field-grid two-cols">
+    <div class="field"><label for="task-{{ index }}-phase">所属阶段</label>
+      <select id="task-{{ index }}-phase" name="task_{{ index }}_phase" data-plan-field="phase_id" data-plan-edited="{% if 'phase_id' in row.planning_provided %}true{% else %}false{% endif %}">
+        <option value="">不归属阶段</option>
+        {% for phase in phases %}<option value="{{ phase.pk }}" {% if row.planning.phase_id == phase.pk|stringformat:'s' %}selected{% endif %}>{{ phase.project.name }} / {{ phase.name }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="field"><label for="task-{{ index }}-planned-for">安排推进日期</label><input id="task-{{ index }}-planned-for" type="{{ row.planned_for.type }}" name="task_{{ index }}_planned_for" value="{{ row.planned_for.value }}" data-plan-field="planned_for" data-plan-edited="{% if 'planned_for' in row.planning_provided %}true{% else %}false{% endif %}" data-review-date data-date-needs-correction="{% if row.planned_for.type == 'text' %}true{% else %}false{% endif %}"></div>
+  </div>
+  <p class="helptext danger" data-plan-warning role="status" hidden>安排日期晚于交付截止日期，请确认是否需要提前推进。仍可保存，截止日期不会改变。</p>
+  {{ row.task_plans|json_script }}
+</details>

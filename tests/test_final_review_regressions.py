@@ -3,15 +3,17 @@ from datetime import date
 
 import httpx
 import pytest
+from django.utils import timezone
 
 from core.models import ImportDraft, MeetingNote, Milestone, ProgressUpdate, Project, Risk, Task
 from core.services.draft_confirmation import DraftConfirmationError, confirm_draft
+from core.services.ai_history import task_baseline
 from core.services.parse_jobs import run_next_job
 
 
 def make_note(**kwargs):
     return MeetingNote.objects.create(
-        title="终审会议", meeting_date=date(2026, 9, 5), raw_text="下一步安排验收", **kwargs,
+        title="终审会议", meeting_date=kwargs.pop("meeting_date", date(2026, 9, 5)), raw_text="下一步安排验收", **kwargs,
     )
 
 
@@ -26,7 +28,7 @@ def parse_task(admin_client, monkeypatch, settings, project, **fields):
                               json={"choices": [{"message": {"content": content}}]})
 
     monkeypatch.setattr("httpx.AsyncClient.post", post)
-    note = make_note()
+    note = make_note(meeting_date=timezone.localdate())
     response = admin_client.post(f"/meetings/{note.pk}/parse/")
     assert response.status_code == 302
     assert run_next_job() is True
@@ -93,7 +95,7 @@ def test_legacy_defaults_are_preserved_but_explicit_user_edits_apply(admin_clien
     project = Project.objects.create(name="仓配")
     task = Task.objects.create(project=project, title="接口联调", status="in_progress", progress=80, priority="high")
     for edit in (False, True):
-        note = make_note(parse_status="success")
+        note = make_note(parse_status="success", meeting_date=timezone.localdate())
         draft = ImportDraft.objects.create(meeting_note=note, payload={"tasks": [{
             "title": task.title, "project_name": project.name,
             "status": "not_started", "progress": 0, "priority": "normal",
@@ -141,11 +143,12 @@ def test_draft_completion_transitions_set_preserve_and_clear_timestamp(initial_s
     completed_at = timezone.now() if initial_status == "done" else None
     existing = Task.objects.create(project=project, title="接口联调", status=initial_status,
                                    completed_at=completed_at) if initial_status else None
-    draft = ImportDraft.objects.create(meeting_note=make_note(parse_status="success"), payload={
+    draft = ImportDraft.objects.create(meeting_note=make_note(parse_status="success", meeting_date=timezone.localdate()), payload={
         "tasks": [{"title": "接口联调", "status": new_status}],
     })
     confirm_draft(draft.pk, {"tasks": [{"action": "update" if existing else "create",
-                                       "project_id": project.pk, "task_id": existing.pk if existing else None}]})
+                                       "project_id": project.pk, "task_id": existing.pk if existing else None,
+                                       "task_baseline": task_baseline(existing, draft) if existing else ""}]})
     task = Task.objects.get()
     assert task.status == new_status
     if new_status == "done":

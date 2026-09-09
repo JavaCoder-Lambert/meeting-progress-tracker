@@ -1,6 +1,15 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const {Workspace, SaveQueue, once, requestJSON} = require('../../static/js/meeting-workspace.js');
+const {Workspace, SaveQueue, once, requestJSON, scheduleAfterDeadline} = require('../../static/js/meeting-workspace.js');
+
+test('meeting date reminder is nonblocking and excludes completed or unarranged tasks', () => {
+  const item = {status: 'in_progress', planned_for: '2026-09-12', due_date: '2026-09-11'};
+  assert.equal(scheduleAfterDeadline(item), true);
+  assert.equal(scheduleAfterDeadline({...item, status: 'done'}), false);
+  assert.equal(scheduleAfterDeadline({...item, planned_for: ''}), false);
+  assert.equal(scheduleAfterDeadline({...item, planned_for: '2026-09-11'}), false);
+  assert.equal(item.due_date, '2026-09-11');
+});
 
 test('selecting a linked task twice keeps stable ID and reporting-person switches preserve inputs', () => {
   const w = new Workspace({items: []}, () => 'stable-id');
@@ -122,4 +131,86 @@ test('writing task progress records the conversation, while selection and report
   w.update(item.id, 'completed_work', '已完成联调'); assert.equal(item.recorded, true);
   w.update(item.id, 'recorded', false); assert.equal(item.recorded, false);
   assert.equal(item.completed_work, '已完成联调');
+});
+
+test('changing a new task project clears the old phase before autosave', async () => {
+  const w = new Workspace({items: []}, () => 'new-task');
+  const item = w.add('new_task', 1);
+  w.update(item.id, 'phase_id', 12);
+  w.update(item.id, 'title', '联调事项');
+  w.update(item.id, 'project_id', 2);
+  let saved;
+  const queue = new SaveQueue({version: 0, getState: () => w.state, apply: () => {},
+    save: async (data) => { saved = data.state; return {version: 1, state: data.state}; }});
+  queue.mark(); assert.equal(await queue.flush(), true);
+  assert.equal(saved.items[0].phase_id, null);
+  assert.equal(saved.items[0].project_id, 2);
+  assert.equal(saved.items[0].title, '联调事项');
+});
+
+test('meeting counts distinguish asked tasks from pending tasks and newly recorded notes', () => {
+  const w = new Workspace({items: [
+    {id: 'a', kind: 'task', person_id: 1, recorded: true},
+    {id: 'b', kind: 'task', person_id: 1, recorded: false},
+    {id: 'c', kind: 'task', person_id: 2, recorded: false},
+    {id: 'd', kind: 'risk', person_id: 1, recorded: true},
+  ]});
+  assert.deepEqual(w.counts(), {total: 3, asked: 1, pending: 2, added: 1});
+  assert.deepEqual(w.counts(2), {total: 1, asked: 0, pending: 1, added: 0});
+  assert.deepEqual(w.counts(3), {total: 0, asked: 0, pending: 0, added: 0});
+});
+
+test('pending-only mode retains the active task while typing and never discards hidden records', () => {
+  const w = new Workspace({items: [
+    {id: 'a', kind: 'task', person_id: 1, recorded: false},
+    {id: 'b', kind: 'task', person_id: 1, recorded: true},
+    {id: 'c', kind: 'note', person_id: 1, recorded: true, content: '保留纪要'},
+  ]});
+  w.pendingOnly = true; w.focusRecord('a');
+  w.update('a', 'completed_work', '正在输入的完成情况');
+  assert.deepEqual(w.records().map(item => item.id), ['a']);
+  assert.equal(w.counts().pending, 0);
+  w.activeId = null;
+  assert.deepEqual(w.records(), []);
+  w.pendingOnly = false;
+  assert.equal(w.records().length, 3);
+  assert.equal(w.state.items[0].completed_work, '正在输入的完成情况');
+  assert.equal(w.state.items[2].content, '保留纪要');
+});
+
+test('switching reporters only changes the visible scope and leaves all draft input intact', () => {
+  const w = new Workspace({items: [
+    {id: 'a', kind: 'task', person_id: 1, recorded: false, next_step: '周五前联调'},
+    {id: 'b', kind: 'task', person_id: 2, recorded: false},
+  ]});
+  w.focusRecord('a'); w.selectPerson(2);
+  assert.deepEqual(w.records().map(item => item.id), ['b']);
+  assert.equal(w.activeId, undefined);
+  w.selectPerson(1);
+  assert.equal(w.records()[0].next_step, '周五前联调');
+});
+
+test('focusing a new note exits pending-only mode so its editor is not hidden', () => {
+  const w = new Workspace({items: []}, () => 'new-note');
+  w.pendingOnly = true; w.person = 2;
+  const item = w.add('note');
+  assert.equal(w.focusRecord(item.id), true);
+  assert.equal(w.pendingOnly, false);
+  assert.equal(w.records()[0].id, item.id);
+  assert.equal(w.focusRecord('missing'), false);
+});
+
+test('next pending task follows meeting order within the selected person and does not mark it asked', () => {
+  const w = new Workspace({items: [
+    {id: 'a', kind: 'task', person_id: 1, recorded: false},
+    {id: 'b', kind: 'task', person_id: 2, recorded: false},
+    {id: 'c', kind: 'task', person_id: 1, recorded: false},
+  ]});
+  w.selectPerson(1); w.focusRecord('a');
+  assert.equal(w.nextPending(), 'c');
+  assert.equal(w.state.items[0].recorded, false);
+  w.focusRecord('c');
+  assert.equal(w.nextPending(), 'a');
+  w.update('a', 'recorded', true);
+  assert.equal(w.nextPending(), null);
 });

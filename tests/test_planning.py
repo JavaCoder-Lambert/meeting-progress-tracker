@@ -19,7 +19,8 @@ def project():
 def test_schedule_moves_work_without_changing_commitment_or_stale_clock(admin_client, project):
     task = Task.objects.create(project=project, title="联调", due_date=date(2026, 9, 16))
     previous = task.updated_at
-    response = admin_client.post(f"/tasks/{task.pk}/schedule/", {"action": "today", "next": "/plans/?view=today"})
+    baseline = admin_client.get(f"/tasks/{task.pk}/").context["task_baseline"]
+    response = admin_client.post(f"/tasks/{task.pk}/schedule/", {"action": "today", "next": "/plans/?view=today", "task_baseline": baseline})
     assert response.url == "/plans/?view=today"
     task.refresh_from_db()
     assert task.planned_for == timezone.localdate()
@@ -55,10 +56,12 @@ def test_explicit_arrangement_and_clear_and_filter(admin_client, project):
     task = Task.objects.create(project=project, title="接口验收")
     other = Project.objects.create(name="财务")
     Task.objects.create(project=other, title="财务独立任务")
-    admin_client.post(f"/tasks/{task.pk}/schedule/", {"action": "date", "planned_for": "2026-09-08"})
+    baseline = admin_client.get(f"/tasks/{task.pk}/").context["task_baseline"]
+    admin_client.post(f"/tasks/{task.pk}/schedule/", {"action": "date", "planned_for": "2026-09-08", "task_baseline": baseline})
     task.refresh_from_db()
     assert task.planned_for == date(2026, 9, 8)
-    admin_client.post(f"/tasks/{task.pk}/schedule/", {"action": "clear"})
+    baseline = admin_client.get(f"/tasks/{task.pk}/").context["task_baseline"]
+    admin_client.post(f"/tasks/{task.pk}/schedule/", {"action": "clear", "task_baseline": baseline})
     response = admin_client.get(f"/plans/?view=unscheduled&project={project.pk}")
     assert [t.pk for t in response.context["tasks"]] == [task.pk]
 

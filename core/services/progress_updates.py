@@ -4,6 +4,8 @@ from django.db import transaction
 from django.utils import timezone
 
 from core.models import ProgressUpdate, Task
+from .ai_history import task_state
+from .task_editing import check_task_edit_baseline
 
 
 def sync_task_completion_timestamp(task: Task, previous_status: str) -> None:
@@ -15,9 +17,11 @@ def sync_task_completion_timestamp(task: Task, previous_status: str) -> None:
 
 
 @transaction.atomic
-def record_task_progress(task: Task, cleaned_data: Mapping) -> ProgressUpdate:
+def record_task_progress(task: Task, cleaned_data: Mapping, *, baseline=None) -> ProgressUpdate:
     """Apply one task-progress entry and retain its before/after snapshot."""
     task = Task.objects.select_for_update().get(pk=task.pk)
+    if baseline is not None:
+        check_task_edit_baseline(task, baseline)
     previous_progress = task.progress
     previous_status = task.status
 
@@ -30,6 +34,8 @@ def record_task_progress(task: Task, cleaned_data: Mapping) -> ProgressUpdate:
     if "current_note" in cleaned_data:
         task.current_note = cleaned_data["current_note"]
 
+    if task.status == Task.Status.DONE:
+        task.progress = 100
     sync_task_completion_timestamp(task, previous_status)
 
     task.full_clean()
@@ -42,4 +48,5 @@ def record_task_progress(task: Task, cleaned_data: Mapping) -> ProgressUpdate:
         new_status=task.status,
         completed_work=cleaned_data.get("completed_work", ""),
         next_step=cleaned_data.get("next_step", ""),
+        snapshot=task_state(task),
     )

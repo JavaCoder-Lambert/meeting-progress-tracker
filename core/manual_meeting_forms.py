@@ -1,4 +1,5 @@
 from django import forms
+from django.db.models import Q
 from django.utils import timezone
 
 from .models import Person, Project
@@ -17,6 +18,12 @@ class ManualMeetingForm(forms.Form):
                                               widget=forms.CheckboxSelectMultiple)
     people = forms.ModelMultipleChoiceField(label="汇报人员", required=False, queryset=Person.objects.filter(is_active=True),
                                             widget=forms.CheckboxSelectMultiple)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Previously selected people remain selectable even when later deactivated.
+        self.fields["people"].queryset = Person.objects.filter(
+            Q(is_active=True) | Q(pk__in=self.initial.get("people", [])))
 
     def meeting_state(self):
         values = self.cleaned_data

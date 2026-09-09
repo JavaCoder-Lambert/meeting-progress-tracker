@@ -1,6 +1,8 @@
 from datetime import date, timedelta
 
+from django.core.paginator import Paginator
 from django.db.models import Q
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 from core.models import Task
@@ -39,7 +41,7 @@ def planned_tasks(queryset, view, start, end, show_done=False):
     ).order_by("planned_for", "project__name", "pk")
 
 
-def timeline_context(project, anchor):
+def timeline_context(project, anchor, page=None):
     start = anchor - timedelta(days=anchor.weekday())
     weeks = [start + timedelta(days=i * 7) for i in range(8)]
     end = start + timedelta(days=55)
@@ -62,8 +64,15 @@ def timeline_context(project, anchor):
         add(phase.name, "phase", phase, phase.start_date, phase.end_date, "phase_edit")
     for milestone in project.milestones.all():
         add(milestone.name, "milestone", milestone, milestone.target_date, milestone.target_date, "milestone_edit")
-    for task in project.tasks.select_related("assignee", "phase").all()[:100]:
+    window_tasks = project.tasks.select_related("assignee", "phase").annotate(
+        window_begin=Coalesce("planned_start_date", "due_date"),
+        window_finish=Coalesce("due_date", "planned_start_date"),
+    ).filter(window_begin__lte=end, window_finish__gte=start).order_by("window_begin", "pk")
+    task_page = Paginator(window_tasks, 100).get_page(page)
+    for task in task_page:
         add(task.title, "task", task, task.planned_start_date, task.due_date, "task_detail")
     return {"timeline_rows": rows, "timeline_start": start, "timeline_end": end, "weeks": weeks,
+            "page_obj": task_page,
+            "timeline_unscheduled_count": project.tasks.filter(planned_start_date__isnull=True, due_date__isnull=True).count(),
             "previous_window": start - timedelta(days=56), "next_window": start + timedelta(days=56),
             "phases": phases}

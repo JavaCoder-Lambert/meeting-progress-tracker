@@ -3,6 +3,7 @@ from datetime import timedelta
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
+from django.db import transaction
 from django.db.models import Count, Q
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -13,6 +14,7 @@ from django.views.decorators.http import require_POST
 from .forms import MilestoneForm, ProjectPhaseForm, RiskForm, TaskScheduleForm
 from .models import Milestone, Person, Project, ProjectPhase, Risk, Task
 from .services.planning import plan_period, planned_tasks, safe_date, timeline_context
+from .services.task_editing import TaskEditConflict, check_task_edit_baseline, task_edit_baseline
 
 
 def _filter_id(queryset, field, value):
@@ -38,18 +40,28 @@ def plan_board(request):
     page = Paginator(tasks, 25).get_page(request.GET.get("page"))
     for task in page:
         task.carried_over = bool(task.planned_for and task.planned_for < min(start, today) and task.status != Task.Status.DONE)
+        task.edit_baseline = task_edit_baseline(task)
     filters = request.GET.copy()
     filters.pop("page", None)
     counts = queryset.aggregate(
         unscheduled=Count("pk", filter=Q(planned_for__isnull=True) & ~Q(status=Task.Status.DONE)),
         overdue=Count("pk", filter=Q(due_date__lt=today) & ~Q(status=Task.Status.DONE)),
     )
+    unscheduled_due = []
+    if view != "unscheduled":
+        # Commitments are suggestions, not arrangements: viewing never writes dates.
+        unscheduled_due = list(queryset.filter(planned_for__isnull=True, due_date__lte=end)
+                               .exclude(status=Task.Status.DONE)
+                               .order_by("due_date", "project__name", "pk")[:8])
+        for task in unscheduled_due:
+            task.edit_baseline = task_edit_baseline(task)
     return render(request, "core/plan_board.html", {
         "tasks": page, "page_obj": page, "querystring": filters.urlencode(),
         "view": view, "start": start, "end": end, "today": today,
         "previous_week": start - timedelta(days=7), "next_week": start + timedelta(days=7),
         "projects": Project.objects.exclude(status=Project.Status.ARCHIVED), "people": Person.objects.filter(is_active=True),
         "project_filter": project_id, "assignee_filter": assignee_id, "show_done": show_done, "counts": counts,
+        "unscheduled_due": unscheduled_due,
     })
 
 
@@ -67,8 +79,18 @@ def task_schedule(request, pk):
         dates = {"today": today, "next_week": today - timedelta(days=today.weekday()) + timedelta(days=7),
                  "clear": None, "date": form.cleaned_data["planned_for"]}
         # Scheduling is not a progress update: do not reset the stale-work clock.
-        Task.objects.filter(pk=task.pk).update(planned_for=dates[action])
-        messages.success(request, "已取消安排。" if action == "clear" else "已更新安排，截止日期保持不变。")
+        try:
+            with transaction.atomic():
+                current = Task.objects.select_for_update().get(pk=task.pk)
+                check_task_edit_baseline(current, form.cleaned_data["task_baseline"])
+                Task.objects.filter(pk=current.pk).update(planned_for=dates[action])
+        except TaskEditConflict:
+            messages.error(request, "任务已变化，安排未保存。请核对最新任务后重新安排。")
+        else:
+            messages.success(request, "已取消安排。" if action == "clear" else "已更新安排，截止日期保持不变。")
+            current.planned_for = dates[action]
+            if current.schedule_after_deadline:
+                messages.warning(request, "安排日期晚于交付截止日期，请确认是否需要提前推进。")
     else:
         messages.error(request, "安排未保存，请选择有效的日期和操作。")
     return redirect(destination)
@@ -81,14 +103,28 @@ def project_plan(request, pk):
         total=Count("pk"), done=Count("pk", filter=Q(status=Task.Status.DONE)),
         overdue=Count("pk", filter=Q(due_date__lt=timezone.localdate()) & ~Q(status=Task.Status.DONE)),
     )
-    context = timeline_context(project, safe_date(request.GET.get("start")))
+    timeline_tab = request.GET.get("tab") == "timeline"
+    show_done = request.GET.get("show_done") == "1"
+    context = timeline_context(project, safe_date(request.GET.get("start")), request.GET.get("page")) if timeline_tab else {"phases": list(project.phases.all())}
+    if not timeline_tab:
+        tasks = project.tasks.select_related("assignee", "phase").order_by("phase__position", "phase_id", "due_date", "pk")
+        if not show_done:
+            tasks = tasks.exclude(status=Task.Status.DONE)
+        page = Paginator(tasks, 50).get_page(request.GET.get("page"))
+        grouped = {phase.pk: {"phase": phase, "tasks": []} for phase in context["phases"]}
+        grouped[None] = {"phase": None, "tasks": []}
+        for task in page:
+            grouped[task.phase_id]["tasks"].append(task)
+        context.update(page_obj=page, task_groups=[group for group in grouped.values() if group["phase"] or group["tasks"]])
+    filters = request.GET.copy()
+    filters.pop("page", None)
     context.update({"project": project, "stats": stats,
+                    "show_done": show_done, "querystring": filters.urlencode(),
                     "task_completion": round(stats["done"] / stats["total"] * 100) if stats["total"] else 0,
-                    "project_tasks": project.tasks.select_related("assignee", "phase")[:50],
                     "project_risks": project.risks.select_related("owner").exclude(status__in=[Risk.Status.CLOSED, Risk.Status.RESOLVED]),
                     "closed_risks": project.risks.select_related("owner").filter(status__in=[Risk.Status.CLOSED, Risk.Status.RESOLVED]),
                     "milestones": project.milestones.all(),
-                    "timeline_tab": request.GET.get("tab") == "timeline", "today": timezone.localdate()})
+                    "timeline_tab": timeline_tab, "today": timezone.localdate()})
     return render(request, "core/project_detail.html", context)
 
 

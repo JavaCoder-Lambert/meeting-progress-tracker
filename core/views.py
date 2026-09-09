@@ -10,25 +10,30 @@ from django.core.paginator import Paginator
 from django.db import transaction
 from django.db.models import Count, Exists, OuterRef, Prefetch, Q, Subquery
 from django.db.models.functions import Coalesce, TruncDate
+from django.db.models.expressions import RawSQL
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
+from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_GET, require_POST
 
 from .forms import MeetingNoteForm, PersonForm, ProjectForm, TaskForm, TaskProgressForm
-from .models import ImportDraft, MeetingNote, ParseJob, Person, Project, Task
+from .models import ImportDraft, MeetingNote, Milestone, ParseJob, Person, ProgressUpdate, Project, ProjectPhase, Risk, RiskFollowup, Task
+from .services.ai_history import task_state
 from .services.dashboard import dashboard_context
-from .services.draft_confirmation import DraftConfirmationError, confirm_draft
+from .services.draft_confirmation import DraftConfirmationError, DraftTaskConflict, confirm_draft
 from .services.exports import build_csv_zip, build_json_export
 from .services.llm_client import LLMParseError
 from .services.parse_jobs import enqueue_parse, recover_expired_jobs
 from .services.reports import build_weekly_report
 from .services.draft_review import build_draft_review
-from .services.draft_stash import (ReviewConflict, check_editable, check_review_version,
-    persist_review, read_review_submission, reference_target, review_snapshot)
+from .services.draft_stash import (ReviewConflict, check_editable, check_review_version, is_saved_review_retry,
+    persist_review, read_review_submission, reference_target, refresh_task_baselines, review_save_digest, review_snapshot)
 from .services.progress_updates import record_task_progress, sync_task_completion_timestamp
 from .services.task_payload import TASK_DEFAULTS, task_provided_fields
+from .services.task_editing import (TaskEditConflict, check_task_edit_baseline,
+    safe_task_return, task_edit_baseline)
 
 
 def health(request):
@@ -120,9 +125,52 @@ def meeting_list(request):
             Q(manual_session__isnull=True, parse_status=MeetingNote.ParseStatus.SUCCESS,
               has_confirmed=False, latest_draft_id__isnull=False)
         )
+    query = request.GET.get("q", "").strip()[:200]
+    project_id = request.GET.get("project", "")
+    filter_error = ""
+    if query:
+        notes = notes.filter(title__icontains=query)
+    dates = {}
+    for key in ("start", "end"):
+        value = request.GET.get(key, "")
+        if value:
+            try:
+                dates[key] = date.fromisoformat(value)
+            except ValueError:
+                filter_error = "日期无效，请使用 YYYY-MM-DD；无效的日期条件未应用。"
+    if dates.get("start") and dates.get("end") and dates["start"] > dates["end"]:
+        filter_error = "开始日期不能晚于结束日期；日期条件未应用。"
+    else:
+        for key, value in dates.items():
+            notes = notes.filter(**{"meeting_date__gte" if key == "start" else "meeting_date__lte": value})
+    if project_id:
+        if project_id.isdecimal() and len(project_id) < 12 and Project.objects.filter(pk=project_id).exists():
+            # SQLite JSON arrays are queried in SQL, without loading every meeting draft.
+            manual_notes = RawSQL("""
+                SELECT meeting_note_id FROM core_meetingsession AS s
+                WHERE EXISTS (SELECT 1 FROM json_each(s.state, '$.project_ids') AS p WHERE p.value = %s)
+                   OR EXISTS (SELECT 1 FROM json_each(s.state, '$.items') AS i WHERE json_extract(i.value, '$.project_id') = %s)
+                """, (int(project_id), int(project_id)))
+            notes = notes.filter(
+                Q(pk__in=manual_notes)
+                | Q(Exists(Task.objects.filter(source_meeting_id=OuterRef("pk"), project_id=project_id)))
+                | Q(Exists(ProgressUpdate.objects.filter(meeting_note_id=OuterRef("pk")).filter(
+                    Q(snapshot__project_id=int(project_id)) | Q(task__project_id=project_id))))
+                | Q(Exists(Risk.objects.filter(source_meeting_id=OuterRef("pk"), project_id=project_id)))
+                | Q(Exists(Milestone.objects.filter(source_meeting_id=OuterRef("pk"), project_id=project_id)))
+                | Q(Exists(RiskFollowup.objects.filter(meeting_note_id=OuterRef("pk"), risk__project_id=project_id)))
+            )
+        else:
+            filter_error = "选择的项目不存在，请重新选择。"
+            notes = notes.none()
     page = Paginator(notes, 20).get_page(request.GET.get("page"))
+    filters = request.GET.copy()
+    filters.pop("page", None)
     return render(request, "core/meeting_list.html", {"meeting_list": page, "page_obj": page,
-                  "state_filter": request.GET.get("state", "")})
+                  "state_filter": request.GET.get("state", ""), "query": query,
+                  "project_filter": project_id, "projects": Project.objects.all(),
+                  "start_filter": request.GET.get("start", ""), "end_filter": request.GET.get("end", ""),
+                  "filter_error": filter_error, "querystring": filters.urlencode()})
 
 
 @login_required
@@ -164,7 +212,8 @@ def _draft_context(draft, error="", decisions=None):
     context = build_draft_review(draft, decisions=decisions, preserve_values=bool(decisions))
     baseline = {"draft_id": draft.pk, "version": draft.review_version, "tasks": [
         {"values": {field: row["item"].get(field) for field in TASK_DEFAULTS},
-         "provided": sorted(task_provided_fields(item))}
+         "provided": sorted(task_provided_fields(item)), "task_baselines": row["task_baselines"],
+         "planning": row["planning"], "planning_provided": row["planning_provided"]}
         for item, row in zip(draft.payload.get("tasks", []), context["task_rows"], strict=True)
     ]}
     return {
@@ -207,10 +256,15 @@ def draft_save(request, pk):
     wants_json = request.headers.get("X-Requested-With") == "XMLHttpRequest"
     try:
         check_editable(draft)
+        save_digest = review_save_digest(request.POST) if wants_json else None
+        if wants_json and is_saved_review_retry(draft, request.POST.get("review_version"), save_digest):
+            return JsonResponse({"ok": True, "version": draft.review_version, "saved_at": draft.review_saved_at.isoformat()})
         check_review_version(draft, request.POST.get("review_version"))
         destination = request.POST.get("destination", "stay")
-        target = reference_target(draft, destination) if destination != "stay" else None
+        target = reference_target(draft, destination) if destination not in {"stay", "refresh_tasks"} else None
         payload, decisions = read_review_submission(draft, request.POST)
+        if destination == "refresh_tasks":
+            refresh_task_baselines(draft, payload, decisions)
     except (ReviewConflict, ValueError, signing.BadSignature) as exc:
         status = 409 if isinstance(exc, ReviewConflict) else 400
         if wants_json:
@@ -218,14 +272,15 @@ def draft_save(request, pk):
         if isinstance(exc, ReviewConflict):
             return _blocked_review_response(request, draft, exc, status)
         return HttpResponse(str(exc), status=status)
-    persist_review(draft, payload, decisions)
+    persist_review(draft, payload, decisions, save_digest=save_digest)
     if wants_json:
         return JsonResponse({"ok": True, "version": draft.review_version, "saved_at": draft.review_saved_at.isoformat()})
     if target:
         token = signing.dumps({**target, "draft_id": draft.pk, "version": draft.review_version}, salt="review-return")
         url = reverse("project_create" if target["kind"] == "project" else "person_create")
         return redirect(url + "?" + urlencode({"review": token}))
-    messages.success(request, "审阅修改已暂存到服务器，尚未写入正式任务。")
+    messages.success(request, "修改已保留，请核对与当前任务的差异，再确认入库。" if destination == "refresh_tasks"
+                     else "审阅修改已暂存到服务器，尚未写入正式任务。")
     return redirect("draft_review", pk=pk)
 
 
@@ -258,9 +313,9 @@ def draft_confirm(request, pk):
             request,
             "core/draft_review.html",
             _draft_context(draft, f"请修正：{exc}"),
-            status=200,
+            status=409 if isinstance(exc, DraftTaskConflict) else 200,
         )
-    messages.success(request, f"已入库：新建 {result.created_tasks} 个任务，更新 {result.updated_tasks} 个任务。")
+    messages.success(request, f"已入库：新建 {result.created_tasks} 个任务，更新 {result.updated_tasks} 个任务，补记历史 {result.historical_updates} 条。")
     return redirect("meeting_detail", pk=draft.meeting_note_id)
 
 
@@ -279,6 +334,8 @@ def task_list(request):
             tasks = tasks.filter(**{field: value})
     queue = request.GET.get("queue", "")
     filters["queue"] = queue
+    if queue in {"overdue", "due_soon", "stale"} and not filters["project"]:
+        tasks = tasks.exclude(project__status=Project.Status.ARCHIVED)
     today = timezone.localdate()
     if queue == "overdue":
         tasks = tasks.exclude(status=Task.Status.DONE).filter(due_date__lt=today)
@@ -306,7 +363,7 @@ def task_board(request):
     return render(request, "core/task_board.html", {"columns": columns})
 
 
-def _task_detail_context(task, progress_form=None):
+def _task_detail_context(task, progress_form=None, *, return_url=None, conflict=False, reviewing=False):
     progress_updates = list(task.progress_updates.select_related("meeting_note").annotate(
         business_date=Coalesce("occurred_on", TruncDate("recorded_at"))
     ).order_by("-business_date", "-recorded_at", "-pk"))
@@ -318,13 +375,18 @@ def _task_detail_context(task, progress_form=None):
         "progress_form": progress_form or TaskProgressForm(task=task),
         "related_risks": task.risks.select_related("owner").all(),
         "progress_updates": progress_updates,
+        "task_baseline": task_edit_baseline(task),
+        "return_url": return_url or reverse("task_list"),
+        "conflict": conflict,
+        "reviewing": reviewing,
     }
 
 
 @login_required
 def task_detail(request, pk):
     task = get_object_or_404(Task.objects.select_related("project", "assignee", "source_meeting"), pk=pk)
-    return render(request, "core/task_detail.html", _task_detail_context(task))
+    return render(request, "core/task_detail.html", _task_detail_context(
+        task, return_url=safe_task_return(request, reverse("task_list"))))
 
 
 @login_required
@@ -332,44 +394,93 @@ def task_progress_update(request, pk):
     task = get_object_or_404(Task.objects.select_related("project", "assignee", "source_meeting"), pk=pk)
     if request.method != "POST":
         return redirect("task_detail", pk=task.pk)
-    form = TaskProgressForm(request.POST, task=task)
+    return_url = safe_task_return(request, reverse("task_list"))
+    data = request.POST
+    reviewing = data.get("intent") == "review_current"
+    if reviewing:
+        try:
+            check_task_edit_baseline(task, data.get("task_baseline"), require_current=False)
+        except TaskEditConflict:
+            reviewing = False
+        else:
+            data = data.copy()
+            data["task_baseline"] = task_edit_baseline(task)
+    form = TaskProgressForm(data, task=task)
     if not form.is_valid():
-        return render(request, "core/task_detail.html", _task_detail_context(task, form))
+        return render(request, "core/task_detail.html", _task_detail_context(task, form, return_url=return_url, reviewing=reviewing))
+    if reviewing:
+        return render(request, "core/task_detail.html", _task_detail_context(task, form, return_url=return_url, reviewing=True))
     try:
-        record_task_progress(task, form.cleaned_data)
+        record_task_progress(task, form.cleaned_data, baseline=form.cleaned_data["task_baseline"])
     except ValidationError as exc:
         # The task can change after form validation; keep service-level errors
         # in the same form, including fields absent from this compact editor.
         for field, errors in getattr(exc, "message_dict", {"__all__": exc.messages}).items():
             form.add_error(field if field in form.fields else None, errors)
         task.refresh_from_db()
-        return render(request, "core/task_detail.html", _task_detail_context(task, form))
+        conflict = isinstance(exc, TaskEditConflict)
+        return render(request, "core/task_detail.html", _task_detail_context(task, form, return_url=return_url, conflict=conflict),
+                      status=409 if conflict else 200)
     messages.success(request, "已记录本次进展。")
-    return redirect("task_detail", pk=task.pk)
+    detail_url = reverse("task_detail", args=[task.pk])
+    if request.POST.get("next"):
+        detail_url += "?" + urlencode({"next": return_url})
+    return redirect(detail_url)
 
 
 @login_required
 def task_edit(request, pk=None):
-    task = get_object_or_404(Task, pk=pk) if pk else None
-    old_progress, old_status = (task.progress, task.status) if task else (None, "")
     project_id = request.GET.get("project", "")
     initial = {"project": project_id} if project_id.isdecimal() and len(project_id) < 12 else {}
-    form = TaskForm(request.POST or None, instance=task, initial=initial)
-    if request.method == "POST" and form.is_valid():
-        with transaction.atomic():
-            task = form.save(commit=False)
-            sync_task_completion_timestamp(task, old_status)
-            if task.pk and not set(form.changed_data).difference({"planned_for"}):
-                # Replanning is not a progress update and must not reset the
-                # reminder for work that has not received a real update.
-                task.save(update_fields=["planned_for"])
+    conflict = reviewing = False
+    with transaction.atomic():
+        task = get_object_or_404(Task.objects.select_for_update(), pk=pk) if pk else None
+        data = request.POST if request.method == "POST" else None
+        baseline_error = None
+        if task and data is not None:
+            reviewing = data.get("intent") == "review_current"
+            try:
+                check_task_edit_baseline(task, data.get("task_baseline"), require_current=not reviewing)
+            except TaskEditConflict as exc:
+                baseline_error, conflict, reviewing = exc, True, False
             else:
-                task.save()
-            form.save_m2m()
-            if old_progress != task.progress or old_status != task.status:
-                task.progress_updates.create(previous_progress=old_progress, new_progress=task.progress, previous_status=old_status, new_status=task.status)
-        return redirect("task_detail", pk=task.pk)
-    return render(request, "core/form_page.html", {"form": form, "title": "编辑任务" if task else "新建任务"})
+                if reviewing:
+                    data = data.copy()
+                    data["task_baseline"] = task_edit_baseline(task)
+        old_progress, old_status = (task.progress, task.status) if task else (None, "")
+        form = TaskForm(data, instance=task, initial=initial)
+        if request.method == "POST":
+            valid = form.is_valid()
+            if baseline_error:
+                form.add_error(None, baseline_error)
+            elif valid and not reviewing:
+                task = form.save(commit=False)
+                sync_task_completion_timestamp(task, old_status)
+                if (task.pk and old_progress == task.progress and old_status == task.status
+                        and not set(form.changed_data).difference({"planned_for", "task_baseline"})):
+                    # Replanning must not reset the reminder for stale work.
+                    task.save(update_fields=["planned_for"])
+                else:
+                    task.save()
+                form.save_m2m()
+                if old_progress != task.progress or old_status != task.status:
+                    task.progress_updates.create(previous_progress=old_progress, new_progress=task.progress,
+                        previous_status=old_status, new_status=task.status, snapshot=task_state(task))
+                messages.success(request, "任务已保存。")
+                return redirect(safe_task_return(request, reverse("task_detail", args=[task.pk])))
+    # ModelForm validation mutates its instance even when invalid; the comparison
+    # panel must show persisted data, while bound widgets retain submitted values.
+    current_task = get_object_or_404(Task.objects.select_related("project", "assignee", "phase"), pk=pk) if pk else None
+    advanced_fields = ("planned_start_date", "acceptance_date", "description")
+    return render(request, "core/task_form.html", {
+        "form": form, "task": current_task, "title": "编辑任务" if pk else "新建任务",
+        "return_url": safe_task_return(request, reverse("task_detail", args=[pk]) if pk else reverse("task_list")),
+        "conflict": conflict, "reviewing": reviewing,
+        "advanced_open": any(form[field].errors for field in advanced_fields),
+        "main_fields": [form[field] for field in ("title", "project", "phase", "assignee", "status", "progress", "priority", "due_date", "planned_for", "current_note")],
+        "advanced_fields": [form[field] for field in advanced_fields],
+        "phase_options": list(ProjectPhase.objects.values("id", "project_id", "name")),
+    }, status=409 if conflict else 200)
 
 
 def _model_form_view(request, form_class, instance, title, redirect_name):
@@ -464,13 +575,17 @@ def report_view(request):
         start, end = start_date.isoformat(), end_date.isoformat()
         error = "日期格式无效，已恢复为本周范围。"
     report = build_weekly_report(start_date, end_date)
-    return render(request, "core/report.html", {"start": start, "end": end, "markdown": report.markdown, "error": error})
+    return render(request, "core/report.html", {"start": start, "end": end, "markdown": report.markdown, "report": report, "error": error})
 
 
 @login_required
+@never_cache
 def settings_view(request):
     from django.conf import settings
-    return render(request, "core/settings.html", {"llm_ready": bool(settings.LLM_API_KEY and settings.LLM_MODEL)})
+    from .services.runtime_status import runtime_status
+    return render(request, "core/settings.html", {
+        "llm_ready": bool(settings.LLM_API_KEY and settings.LLM_MODEL), "runtime": runtime_status(),
+    })
 
 
 @login_required

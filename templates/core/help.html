@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}使用与部署指南{% endblock %}
+{% block content %}
+<div class="page">
+  <div class="page-head"><div><span class="eyebrow">使用手册</span><h1>从记录到跟进，再到安全部署</h1><p class="muted">先按日常流程使用；迁移和升级前，再核对对应清单。</p></div><a class="button quiet" href="{% url 'settings' %}">返回设置</a></div>
+  <section aria-labelledby="workflow-title"><h2 id="workflow-title">日常使用，五个步骤</h2><ol class="guide-steps">
+    <li><strong>会前安排</strong><p>在项目中设置阶段与截止日期，在工作计划中选择哪天推进。准备下次会议可沿用上次人员和未完成任务。</p><a class="text-link" href="{% url 'plan_board' %}">打开工作计划 →</a></li>
+    <li><strong>会中记录</strong><p>选择汇报人，逐项填写进展。新任务可选择所属阶段；缺少项目和人员可以原地新建。</p><a class="text-link" href="{% url 'manual_meeting_create' %}">新建会议 →</a></li>
+    <li><strong>会后核对</strong><p>确认“已暂存”再离开。结束后预览变更，最终确认才写入任务。过去会议只补充已有任务历史；未来会议不能提前确认进度。</p><a class="text-link" href="{% url 'meeting_list' %}">继续未完成会议 →</a></li>
+    <li><strong>持续跟进</strong><p>工作台优先展示待确认、到期和风险。复制按负责人整理的跟进文案，发到钉钉。</p><a class="text-link" href="{% url 'dashboard' %}">打开工作台 →</a></li>
+    <li><strong>生成周报</strong><p>按业务日期选择报告范围。会议日期决定本次进展归属，实际录入时间仍保留。</p><a class="text-link" href="{% url 'report' %}">打开周报 →</a></li>
+  </ol></section>
+  <div class="grid two">
+    <section id="deployment"><h2>部署与数据安全</h2><p>有本地数据时，使用迁移手册，不要按全新安装先创建新库。代码、SQLite 数据卷和 env 分开保管。</p><p class="muted">升级需要可回退的镜像版本和匹配快照。不要删除数据卷，也不要在本地与服务器同时继续写两份数据。</p></section>
+    <section id="troubleshooting"><h2>遇到异常先保留输入</h2><p>暂存失败时不要刷新，先重试或复制当前输入。手动会议还可下载当前输入用于人工核对；冲突 JSON 不是整站备份，也不支持直接导回。</p><p class="muted">解析排队较久先检查 worker；旧会议和当前任务冲突时先重审，不要重复调用模型。</p></section>
+  </div>
+  <section class="surface"><h2>下载完整手册</h2><div class="guide-downloads">{% for slug, document in documents %}<a class="data-row list-row" href="{% url 'document_download' slug %}"><span>{{ document.0 }}</span><span class="muted">Markdown ↓</span></a>{% endfor %}</div></section>
+</div>
+{% endblock %}

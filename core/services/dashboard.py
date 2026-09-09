@@ -45,7 +45,7 @@ def _follow_up_groups(overdue_tasks, due_soon_tasks, stale_tasks):
 def dashboard_context():
     today = timezone.localdate()
     week_end = today + timedelta(days=7)
-    tasks = Task.objects.select_related("project", "assignee")
+    tasks = Task.objects.select_related("project", "assignee").exclude(project__status=Project.Status.ARCHIVED)
     open_tasks = tasks.exclude(status=Task.Status.DONE)
     overdue_tasks = _task_order(open_tasks.filter(due_date__lt=today))
     due_soon_tasks = _task_order(open_tasks.filter(due_date__gte=today, due_date__lte=week_end))
@@ -66,7 +66,7 @@ def dashboard_context():
     )
     open_risks = Risk.objects.exclude(
         status__in=[Risk.Status.RESOLVED, Risk.Status.CLOSED]
-    ).select_related("project", "owner")
+    ).exclude(project__status=Project.Status.ARCHIVED).select_related("project", "owner")
     follow_up_groups = _follow_up_groups(overdue_tasks, due_soon_tasks, stale_tasks)
     manual_drafts = MeetingSession.objects.filter(confirmed_at__isnull=True).select_related("meeting_note").defer(
         "state", "minutes", "meeting_note__raw_text", "meeting_note__raw_llm_response", "meeting_note__parse_error"

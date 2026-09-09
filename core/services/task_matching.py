@@ -27,8 +27,8 @@ def find_task_candidates(item: dict, queryset) -> list[TaskCandidate]:
     for task in tasks:
         if item.get("project_name") and task.project.name != item["project_name"]:
             continue
-        if item.get("assignee_name") and (not task.assignee or task.assignee.name != item["assignee_name"]):
-            continue
+        # Ownership can change at a meeting; it is a reviewable difference,
+        # not proof that this must be a brand-new task.
         existing = _normalize_title(task.title)
         score = SequenceMatcher(None, wanted, existing).ratio()
         if wanted in existing or existing in wanted:

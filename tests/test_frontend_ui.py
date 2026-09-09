@@ -89,7 +89,7 @@ def test_draft_review_labels_reference_their_controls(admin_client):
     assert set(parser.label_targets) <= parser.control_ids
     html = response.content.decode()
     assert html.count("data-review-project") == 3
-    assert html.count("data-review-date") == 5
+    assert html.count("data-review-date") == 6  # Includes the independent planned-for field.
     assert 'data-date-needs-correction="true"' in html
 
 

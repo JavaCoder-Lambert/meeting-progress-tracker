@@ -6,11 +6,16 @@
     <div><span class="eyebrow">会议工作空间</span><h1>会议记录</h1><p class="muted">边开会边记录，或粘贴消息整理。未结束的会议可随时回来继续。</p></div>
     <div class="row-actions"><a class="button" href="{% url 'meeting_create' %}">粘贴 / AI 整理</a><a class="button primary" href="{% url 'manual_meeting_create' %}">＋ 新建会议</a></div>
   </div>
-  <nav class="toolbar" aria-label="会议筛选">
-    <a class="button{% if state_filter != 'pending' %} primary{% endif %}" href="{% url 'meeting_list' %}">全部记录</a>
-    <a class="button{% if state_filter == 'pending' %} primary{% endif %}" href="{% url 'meeting_list' %}?state=pending">待确认</a>
-    <span class="muted">共 {{ page_obj.paginator.count }} 条</span>
-  </nav>
+  <form method="get" class="plan-toolbar" aria-label="会议筛选">
+    <label>搜索主题<input type="search" name="q" value="{{ query }}" placeholder="例如：SPU 周会" maxlength="200"></label>
+    <label>关联项目<select name="project"><option value="">全部项目</option>{% for project in projects %}<option value="{{ project.pk }}" {% if project_filter == project.pk|stringformat:'s' %}selected{% endif %}>{{ project.name }}</option>{% endfor %}</select></label>
+    <label>开始日期<input type="date" name="start" value="{{ start_filter }}"></label>
+    <label>结束日期<input type="date" name="end" value="{{ end_filter }}"></label>
+    <label>状态<select name="state"><option value="">全部记录</option><option value="pending" {% if state_filter == 'pending' %}selected{% endif %}>待确认</option></select></label>
+    <button class="button primary" type="submit">筛选</button><a class="button quiet" href="{% url 'meeting_list' %}">清除</a>
+  </form>
+  {% if filter_error %}<p class="alert error" role="alert">{{ filter_error }}</p>{% endif %}
+  <p class="muted">共 {{ page_obj.paginator.count }} 条{% if project_filter %} · 按手动选择的项目和已入库事项关联，未确认的 AI 识别结果暂不计入{% endif %}</p>
   <section aria-label="会议列表">
     {% for note in meeting_list %}
       <article class="data-row list-row">
@@ -34,14 +39,14 @@
         </div>
       </article>
     {% empty %}
-      <div class="empty-state">还没有会议记录。新建会议按人记录进展，或粘贴钉钉消息开始整理。</div>
+      <div class="empty-state">{% if querystring %}没有符合条件的会议。可调整日期或<a href="{% url 'meeting_list' %}">清除筛选</a>。{% else %}还没有会议记录。新建会议按人记录进展，或粘贴钉钉消息开始整理。{% endif %}</div>
     {% endfor %}
   </section>
   {% if page_obj.has_other_pages %}
   <nav class="pagination" aria-label="会议分页">
-    {% if page_obj.has_previous %}<a class="button" href="?state={{ state_filter|urlencode }}&amp;page={{ page_obj.previous_page_number }}">上一页</a>{% endif %}
+    {% if page_obj.has_previous %}<a class="button" href="?{{ querystring }}&amp;page={{ page_obj.previous_page_number }}">上一页</a>{% endif %}
     <span>第 {{ page_obj.number }} / {{ page_obj.paginator.num_pages }} 页</span>
-    {% if page_obj.has_next %}<a class="button" href="?state={{ state_filter|urlencode }}&amp;page={{ page_obj.next_page_number }}">下一页</a>{% endif %}
+    {% if page_obj.has_next %}<a class="button" href="?{{ querystring }}&amp;page={{ page_obj.next_page_number }}">下一页</a>{% endif %}
   </nav>
   {% endif %}
 </div>

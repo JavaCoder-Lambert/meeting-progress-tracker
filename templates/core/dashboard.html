@@ -17,7 +17,8 @@
     </div>
   </section>
 
-  <div class="grid two">
+  <div class="dashboard-priorities grid two">
+    {% if manual_drafts or pending_drafts %}
     <section aria-labelledby="draft-queue-title">
       <h2 id="draft-queue-title">待确认草稿</h2>
       {% for session in manual_drafts %}
@@ -27,35 +28,42 @@
         <a class="data-row list-row" href="{% url 'draft_review' draft.pk %}"><div><strong>{{ draft.meeting_note.title }}</strong><span><time datetime="{{ draft.meeting_note.meeting_date|date:"Y-m-d" }}">{{ draft.meeting_note.meeting_date }}</time> · 继续检查并确认入库</span></div><b aria-hidden="true">→</b></a>
       {% empty %}{% if not manual_drafts %}<div class="empty-state">没有待确认草稿。新建会议或粘贴记录即可开始。</div>{% endif %}{% endfor %}
     </section>
-    <section aria-labelledby="overdue-queue-title">
+    {% endif %}
+    {% if overdue_tasks %}
+    <section id="overdue-queue" aria-labelledby="overdue-queue-title">
       <div class="section-head"><h2 id="overdue-queue-title">优先处理：逾期</h2><a href="{% url 'task_list' %}?queue=overdue">查看全部</a></div>
       {% for task in overdue_tasks %}
         <a class="data-row list-row" href="{% url 'task_detail' task.pk %}"><div><strong>{{ task.title }}</strong><span>{{ task.project.name }}{% if task.assignee %} · {{ task.assignee.name }}{% endif %}</span></div><time class="danger" datetime="{{ task.due_date|date:"Y-m-d" }}">{{ task.due_date }}</time></a>
       {% empty %}<div class="empty-state">没有逾期任务。</div>{% endfor %}
     </section>
-  </div>
+    {% endif %}
 
-  <div class="grid two">
+    {% if due_soon_tasks %}
     <section aria-labelledby="due-soon-title">
       <div class="section-head"><h2 id="due-soon-title">接下来 7 天到期</h2><a href="{% url 'task_list' %}?queue=due_soon">查看全部</a></div>
       {% for task in due_soon_tasks %}
         <a class="data-row list-row" href="{% url 'task_detail' task.pk %}"><div><strong>{{ task.title }}</strong><span>{{ task.project.name }}{% if task.assignee %} · {{ task.assignee.name }}{% endif %}</span></div><time datetime="{{ task.due_date|date:"Y-m-d" }}">{{ task.due_date }}</time></a>
       {% empty %}<div class="empty-state">未来 7 天没有到期任务。</div>{% endfor %}
     </section>
+    {% endif %}
+    {% if stale_tasks %}
     <section aria-labelledby="stale-title">
       <div class="section-head"><h2 id="stale-title">长期未更新</h2><a href="{% url 'task_list' %}?queue=stale">查看全部</a></div>
       {% for task in stale_tasks %}
         <a class="data-row list-row" href="{% url 'task_detail' task.pk %}"><div><strong>{{ task.title }}</strong><span>{{ task.project.name }}{% if task.assignee %} · {{ task.assignee.name }}{% endif %}</span></div><time datetime="{{ task.updated_at|date:"c" }}">{{ task.updated_at|date:"Y-m-d" }}</time></a>
       {% empty %}<div class="empty-state">没有长期未更新的任务。</div>{% endfor %}
     </section>
+    {% endif %}
   </div>
 
-  <section aria-labelledby="follow-up-title">
-    <h2 id="follow-up-title">按负责人跟进</h2>
-    {% for group in follow_up_groups %}
-      <article class="surface"><div class="section-head"><strong>{{ group.person.name }}</strong><button class="button" type="button" data-copy-target="follow-up-{{ forloop.counter }}">复制跟进文案</button></div><pre class="follow-up-text" id="follow-up-{{ forloop.counter }}">{{ group.text }}</pre></article>
-    {% empty %}<div class="empty-state">当前没有需要按负责人催办的任务。</div>{% endfor %}
-  </section>
+  {% if not action_counts.pending_drafts or not overdue_tasks or not due_soon_tasks or not stale_tasks %}
+  <details class="quiet-queues" id="quiet-queues"><summary>查看当前无需处理的队列</summary>
+    {% if not action_counts.pending_drafts %}<p>没有待确认草稿。新建会议或粘贴记录即可开始。</p>{% endif %}
+    {% if not overdue_tasks %}<p>没有逾期任务。</p>{% endif %}
+    {% if not due_soon_tasks %}<p>未来 7 天没有到期任务。</p>{% endif %}
+    {% if not stale_tasks %}<p>没有长期未更新的任务。</p>{% endif %}
+  </details>
+  {% endif %}
 
   <div class="grid two">
     <section id="open-risks" aria-labelledby="risk-title">
@@ -67,5 +75,13 @@
       {% for note in meetings %}<a class="data-row list-row" href="{% url 'meeting_detail' note.pk %}"><div><strong>{{ note.title }}</strong><span>{% if note.manual_session %}手动记录 · {% if note.manual_session.confirmed_at %}已确认{% else %}暂存中{% endif %}{% else %}{{ note.get_parse_status_display }}{% endif %}</span></div><time datetime="{{ note.meeting_date|date:"Y-m-d" }}">{{ note.meeting_date }}</time></a>{% empty %}<div class="empty-state">尚未录入会议。</div>{% endfor %}
     </section>
   </div>
+  {% if follow_up_groups %}
+  <section aria-labelledby="follow-up-title">
+    <h2 id="follow-up-title">按负责人跟进</h2>
+    {% for group in follow_up_groups %}
+      <article class="surface"><div class="section-head"><strong>{{ group.person.name }}</strong><button class="button" type="button" data-copy-target="follow-up-{{ forloop.counter }}">复制跟进文案</button></div><pre class="follow-up-text" id="follow-up-{{ forloop.counter }}">{{ group.text }}</pre></article>
+    {% empty %}<div class="empty-state">当前没有需要按负责人催办的任务。</div>{% endfor %}
+  </section>
+  {% endif %}
 </div>
 {% endblock %}

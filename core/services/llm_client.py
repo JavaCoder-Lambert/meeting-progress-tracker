@@ -1,6 +1,8 @@
 import asyncio
 import json
+import logging
 import re
+import time
 
 import httpx
 from django.conf import settings
@@ -9,6 +11,9 @@ from pydantic import ValidationError
 
 from core.models import ImportDraft, MeetingNote, Person, Project, Task
 from .llm_schema import ParsedMeeting
+
+
+logger = logging.getLogger(__name__)
 
 
 class LLMParseError(Exception):
@@ -45,16 +50,16 @@ def _context():
         "projects": list(Project.objects.exclude(status=Project.Status.ARCHIVED).values_list("name", flat=True)),
         "people": list(Person.objects.filter(is_active=True).values_list("name", flat=True)),
         "open_tasks": list(
-            Task.objects.exclude(status=Task.Status.DONE)
+            Task.objects.exclude(status=Task.Status.DONE).exclude(project__status=Project.Status.ARCHIVED)
             .values("id", "title", "project__name", "assignee__name", "status", "progress")[:100]
         ),
     }
 
 
-def _request_body(note):
+def _request_body(note, context=None):
     prompt = {
         "meeting_date": note.meeting_date.isoformat(),
-        "known_context": _context(),
+        "known_context": context if context is not None else _context(),
         "field_rules": OUTPUT_FORMAT,
         "meeting_text": note.raw_text,
     }
@@ -83,14 +88,29 @@ async def _request_content(client, body):
     return content
 
 
-async def _request_and_parse(body):
+def _diagnostic(stage, note_id, started, **counts):
+    logger.info("LLM parsing stage completed", extra={
+        "parse_stage": stage, "meeting_note_id": note_id,
+        "duration_ms": round((time.monotonic() - started) * 1000, 3), **counts,
+    })
+
+
+async def _request_and_parse(body, note_id):
     async with asyncio.timeout(settings.LLM_TIMEOUT_SECONDS):
         async with httpx.AsyncClient(timeout=None) as client:
-            content = await _request_content(client, body)
+            started = time.monotonic()
+            try:
+                content = await _request_content(client, body)
+            finally:
+                _diagnostic("first_call", note_id, started)
             try:
                 parsed = _parse_content(content)
             except (ValidationError, ValueError):
-                content = await _request_content(client, _repair_body(body, content))
+                started = time.monotonic()
+                try:
+                    content = await _request_content(client, _repair_body(body, content))
+                finally:
+                    _diagnostic("repair_call", note_id, started)
                 parsed = _parse_content(content)
             return content, parsed
 
@@ -145,22 +165,35 @@ def validate_llm_config():
 def generate_meeting_payload(note: MeetingNote):
     """Wait for the provider without mutating persistent parsing state."""
     validate_llm_config()
-    body = _request_body(note)
+    total_started = time.monotonic()
+    context_started = time.monotonic()
+    context = _context()
+    _diagnostic("context", note.pk, context_started, project_count=len(context["projects"]),
+                people_count=len(context["people"]), task_count=len(context["open_tasks"]),
+                input_chars=len(note.raw_text))
+    body = _request_body(note, context)
+    result_counts = {"task_count": 0, "risk_count": 0, "milestone_count": 0, "uncertainty_count": 0}
     try:
-        content, parsed = asyncio.run(_request_and_parse(body))
-    except (TimeoutError, httpx.TimeoutException) as exc:
-        raise LLMParseError("大模型响应超时。复杂会议可能需要更久，请稍后重试或换用更快的模型。") from exc
-    except httpx.HTTPStatusError as exc:
-        raise LLMParseError(_http_error_message(exc)) from exc
-    except httpx.RequestError as exc:
-        raise LLMParseError("无法连接大模型服务，请检查网络或接口地址。") from exc
-    except (ValidationError, KeyError, IndexError, TypeError, ValueError) as exc:
-        raise LLMParseError("大模型返回内容格式不正确，已自动修复重试一次。请再次尝试。") from exc
-    payload = parsed.model_dump(mode="json")
-    for task, item in zip(parsed.tasks, payload["tasks"], strict=True):
-        # Includes progress derived from an explicit done status by validation.
-        item["_provided_fields"] = sorted(task.model_fields_set)
-    return content, payload
+        try:
+            content, parsed = asyncio.run(_request_and_parse(body, note.pk))
+        except (TimeoutError, httpx.TimeoutException) as exc:
+            raise LLMParseError("大模型响应超时。复杂会议可能需要更久，请稍后重试或换用更快的模型。") from exc
+        except httpx.HTTPStatusError as exc:
+            raise LLMParseError(_http_error_message(exc)) from exc
+        except httpx.RequestError as exc:
+            raise LLMParseError("无法连接大模型服务，请检查网络或接口地址。") from exc
+        except (ValidationError, KeyError, IndexError, TypeError, ValueError) as exc:
+            raise LLMParseError("大模型返回内容格式不正确，已自动修复重试一次。请再次尝试。") from exc
+        payload = parsed.model_dump(mode="json")
+        for task, item in zip(parsed.tasks, payload["tasks"], strict=True):
+            # Includes progress derived from an explicit done status by validation.
+            item["_provided_fields"] = sorted(task.model_fields_set)
+        result_counts = {"task_count": len(payload["tasks"]), "risk_count": len(payload["risks"]),
+                         "milestone_count": len(payload["milestones"]),
+                         "uncertainty_count": len(payload["uncertainties"])}
+        return content, payload
+    finally:
+        _diagnostic("model_total", note.pk, total_started, **result_counts)
 
 
 def parse_meeting_note(note: MeetingNote) -> ImportDraft:

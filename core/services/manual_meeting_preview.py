@@ -50,6 +50,21 @@ def build_preview(session):
         preview["items"].append({"id": card["id"], "kind": "task", **snapshot, "summary": summary, "historical": historical})
         preview["counts"]["tasks"] += 1
         minutes.append(f'\n## {snapshot["title"]}\n{snapshot["project_name"]} / {snapshot["person_name"]}\n{summary}')
+    from .risk_followups import prepare_followup
+    for followup in state.get("risk_followups", []):
+        try:
+            risk, before, after, historical_risk = prepare_followup(meeting_note=session.meeting_note, **followup)
+        except (ManualMeetingError, ObjectDoesNotExist) as exc:
+            preview["errors"].append(str(exc))
+            records.append({"conflict": getattr(exc, "conflict", False)})
+            continue
+        summary = f'本次答复：{followup["response"]}\n下一步：{followup["next_step"]}\n状态：{dict(Risk.Status.choices)[before["status"]]} → {risk.get_status_display()}\n负责人：{before.get("owner_name") or "未指定"} → {after.get("owner_name") or "未指定"}\n目标日期：{before.get("due_date") or "未设置"} → {after.get("due_date") or "未设置"}\n理由：{followup["reason"] or "无"}'
+        if historical_risk:
+            summary += "\n仅追加历史，不修改当前风险"
+        preview["items"].append({"kind":"risk", "title":f"跟进已有风险：{risk.content}", "project_name":risk.project.name,
+            "person_name":risk.owner.name if risk.owner else "", "summary":summary, "historical":historical_risk})
+        preview["counts"]["risks"] += 1
+        minutes.append(f'\n## 跟进风险：{risk.content}\n{summary}')
     preview["minutes"] = "\n".join(minutes).strip()
     return preview, records
 
@@ -107,7 +122,7 @@ def prepare_other(card, session):
     due = date.fromisoformat(card["due_date"]) if card.get("due_date") else None
     model = None
     if kind == "new_task":
-        model = Task(project=project, assignee=person, title=card.get("title", ""),
+        model = Task(project=project, assignee=person, phase_id=card.get("phase_id"), title=card.get("title", ""),
                      status=card.get("status") or Task.Status.NOT_STARTED, progress=card.get("progress") or 0,
                      due_date=due, planned_for=date.fromisoformat(card["planned_for"]) if card.get("planned_for") else None,
                      description=card.get("content", ""), source_meeting=session.meeting_note,
@@ -115,7 +130,9 @@ def prepare_other(card, session):
         if model.status == Task.Status.DONE:
             model.progress = 100
         model.full_clean()
+        snapshot["phase_name"] = model.phase.name if model.phase_id else ""
         summary = "\n".join([f'{model.get_status_display()} · {model.progress}%', *content_lines(card),
+            f'项目阶段：{snapshot["phase_name"] or "未设置"}',
             f'截止日期：{card["due_date"] or "未设置"}', f'安排日期：{card["planned_for"] or "未设置"}'])
     else:
         content = card.get("content", "").strip()

@@ -159,6 +159,11 @@ class Task(TimestampedModel):
     def is_overdue(self):
         return bool(self.due_date and self.due_date < timezone.localdate() and self.status != self.Status.DONE)
 
+    @property
+    def schedule_after_deadline(self):
+        return bool(self.planned_for and self.due_date and self.planned_for > self.due_date
+                    and self.status != self.Status.DONE)
+
     def clean(self):
         if self.phase_id and self.project_id and self.phase.project_id != self.project_id:
             raise ValidationError({"phase": "阶段必须属于当前项目。"})
@@ -250,3 +255,8 @@ class ParseJob(TimestampedModel):
 
     class Meta:
         ordering = ["queued_at", "pk"]
+
+
+# Keep the independent history features small while registering them in this app.
+from .weekplan_models import ProjectWeekPlan, ProjectWeekPlanItem  # noqa: E402, F401
+from .history_models import MeetingCorrection, RiskFollowup  # noqa: E402, F401
